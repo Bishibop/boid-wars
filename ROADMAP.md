@@ -156,10 +156,69 @@ This document outlines our iterative development approach. Each iteration builds
 
 ## Current Status
 
-🎯 **We are here**: Starting Iteration 0
+🎯 **We are here**: Iteration 0 - Partially Complete
 
-Next steps:
-1. Complete tech stack validation
-2. Deploy minimal server
-3. Connect with one player and one boid
-4. Validate entire pipeline works
+### Completed ✅
+- Basic server game loop with 1 player and 1 boid
+- WASM client with canvas rendering  
+- WASD movement controls
+- Boid AI that follows players
+- Game state visualization
+- Build pipeline for WASM
+
+### Blocked 🔴
+- **Lightyear 0.21 API Breaking Changes**: The networking library API changed significantly
+  - `ServerPlugin` → `ServerPlugins` (usage unclear)
+  - Component registration methods don't exist
+  - No working examples found for v0.21
+  - **Workaround**: Running without networking (offline mode)
+- **SSL/WebTransport Issues**: 
+  - Certificates not configured
+  - **Workaround**: Disabled HTTPS
+
+### Technical Debt
+1. **protocol.rs** - Networking code commented out
+2. **No multiplayer** - Just local simulation 
+3. **No entity replication** - Components defined but not networked
+4. **Connection handling stubbed** - Events defined but not processed
+
+### Recovery Instructions
+If continuing from this point:
+
+1. **Current Working State**:
+   - Server: `cargo run -p boid-wars-server`
+   - Client: `cd client && npm run dev`
+   - Game works in offline mode with WASD controls
+
+2. **To Enable Networking**:
+   - Research Lightyear 0.21 examples in `lightyear/examples/simple_box`
+   - Generate SSL certs: `cd deploy && mkcert localhost 127.0.0.1 ::1`
+   - Fix component registration in `shared/src/protocol.rs`
+   - Re-enable connection handling in `server/src/main.rs`
+
+3. **Key Problem Areas**:
+   - `/shared/src/protocol.rs` - Component registration commented out
+   - `/server/src/main.rs` - Connection handling disabled
+   - `/docs/technical/LIGHTYEAR_0.21_API.md` - Research notes on API changes
+
+### Recent Progress ✅
+- **ServerPlugins API discovered**: Now using `ServerPlugins { tick_duration: Duration::from_secs_f64(1.0 / 30.0) }`
+- **Server compiles and runs**: Basic server with ServerPlugins working
+- **SSL certificates generated**: Using mkcert for localhost development
+- **HTTPS enabled**: Client dev server running with SSL
+- **Server entity spawned**: Successfully spawning Server entity in startup
+- **Event system investigated**: Found Connect/Disconnect events but they're not initialized
+
+### Current Blockers 🔴
+- **Connection events not initialized**: Connect/Disconnect/LinkStart/Unlink events cause "Event not initialized" panic
+- **Component registration**: Still need to enable proper component registration
+- **Server listening**: Server entity spawned but unclear if it's actually listening for connections
+
+### Next Steps:
+1. **Find connection events**: Search for correct event types in Lightyear 0.21
+2. **Enable server listening**: Figure out how to start accepting connections
+3. **Fix component registration**: Update protocol.rs with working API
+4. **Generate SSL certificates**: `cd deploy && mkcert localhost 127.0.0.1 ::1`
+5. **Test networking**: Connect client to server
+6. **Implement shooting mechanics**
+7. **Deploy to Fly.io**

@@ -1734,6 +1734,8 @@ dependencies = [
 name = "boid-wars-shared"
 version = "0.1.0"
 dependencies = [
+ "bevy",
+ "lightyear",
  "serde",
 ]
 
