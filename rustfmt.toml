@@ -1,0 +1,7 @@
+# Rust formatting configuration (stable features only)
+
+# Maximum line width
+max_width = 100
+
+# Use field initialization shorthand
+use_field_init_shorthand = true

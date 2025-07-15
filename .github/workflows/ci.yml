@@ -79,3 +79,4 @@ jobs:
           cd client
           npm ci
           npm run build
+          npm run test -- --run
