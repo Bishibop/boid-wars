@@ -1,0 +1,63 @@
+import { Application, Graphics, Text } from 'pixi.js';
+
+// Status element
+const statusEl = document.getElementById('status')!;
+
+// Initialize Pixi.js
+const app = new Application({
+  width: 800,
+  height: 600,
+  backgroundColor: 0x1a1a1a,
+  antialias: true,
+});
+
+// Add canvas to DOM
+document.getElementById('game-container')!.appendChild(app.canvas as HTMLCanvasElement);
+
+// Create a simple circle that will move when connected
+const circle = new Graphics();
+circle.beginFill(0x00ff00);
+circle.drawCircle(0, 0, 20);
+circle.endFill();
+circle.x = app.screen.width / 2;
+circle.y = app.screen.height / 2;
+app.stage.addChild(circle);
+
+// Add connection status text
+const connectionText = new Text('Waiting for WASM...', {
+  fill: 0xffffff,
+  fontSize: 14,
+});
+connectionText.x = 10;
+connectionText.y = 10;
+app.stage.addChild(connectionText);
+
+// Animation loop
+let time = 0;
+app.ticker.add((delta) => {
+  time += delta * 0.01;
+  // Simple animation to show rendering works
+  circle.y = app.screen.height / 2 + Math.sin(time) * 50;
+});
+
+// Update status
+statusEl.textContent = 'Client initialized - Pixi.js running';
+statusEl.className = 'connected';
+
+// Placeholder for WASM integration
+async function initializeWasm() {
+  try {
+    // This will be replaced with actual WASM module import
+    console.log('WASM integration will go here');
+    connectionText.text = 'WASM not yet integrated';
+  } catch (error) {
+    console.error('Failed to initialize WASM:', error);
+    connectionText.text = 'WASM initialization failed';
+  }
+}
+
+// Initialize WASM when ready
+initializeWasm();
+
+// Export for debugging
+(window as any).pixiApp = app;
