@@ -9,7 +9,7 @@ boid-wars-shared = { path = "../shared" }
 
 # Core
 bevy = { workspace = true }
-lightyear = { workspace = true, features = ["server", "webtransport"] }
+lightyear = { workspace = true }
 serde = { workspace = true }
 
 # Logging

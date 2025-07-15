@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 boid-wars-shared = { path = "../shared" }
 
 # Core
-lightyear = { workspace = true, features = ["client", "websocket"], default-features = false }
+lightyear = { workspace = true }
 serde = { workspace = true }
 
 # WASM

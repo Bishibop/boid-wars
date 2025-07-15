@@ -43,3 +43,8 @@ make build      # Build all components for production
 - **Rust**: Use `cargo fmt` and `cargo clippy`, prefer iteration over recursion
 - **Testing**: Test behavior not implementation, performance tests for critical paths
 - **Commits**: Use conventional commits format
+
+## Git Commit Guidelines
+- Do NOT add Claude as a co-contributor in commit messages
+- Focus on technical changes and their impact
+- Use clear, descriptive commit messages without AI attribution

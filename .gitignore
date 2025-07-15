@@ -41,3 +41,11 @@ Thumbs.db
 # Build outputs
 build/
 out/
+
+# Git worktrees
+*-worktree/
+physics-worktree/
+boid-simulation-worktree/
+
+# Test scripts
+test_compile.sh

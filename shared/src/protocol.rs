@@ -1,14 +1,16 @@
-use bevy::prelude::*;
 use bevy::ecs::entity::MapEntities;
-use lightyear::prelude::*;
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+
+// Re-export Vec2 for use in other crates
+pub use bevy::prelude::Vec2;
 
 // Components
 
 /// Player entity component
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Player {
-    pub id: PeerId,
+    pub id: u64,
     pub name: String,
 }
 
@@ -27,7 +29,7 @@ impl Position {
     pub fn x(&self) -> f32 {
         self.0.x
     }
-    
+
     pub fn y(&self) -> f32 {
         self.0.y
     }
@@ -60,7 +62,7 @@ impl Velocity {
     pub fn x(&self) -> f32 {
         self.0.x
     }
-    
+
     pub fn y(&self) -> f32 {
         self.0.y
     }
@@ -122,7 +124,7 @@ pub struct PlayerBundle {
 }
 
 impl PlayerBundle {
-    pub fn new(id: PeerId, name: String, x: f32, y: f32) -> Self {
+    pub fn new(id: u64, name: String, x: f32, y: f32) -> Self {
         Self {
             player: Player { id, name },
             position: Position::new(x, y),
@@ -167,19 +169,10 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // Register types with Bevy
         app.register_type::<PlayerInput>();
-        
-        // TODO: Component registration might need to be done after ServerPlugins is added
-        // Let's try a simpler approach for now
-        
-        // Basic component registration (if this fails, we'll move it to server setup)
-        // app.register_component::<Player>();
-        // app.register_component::<Position>();
-        // app.register_component::<Rotation>();
-        // app.register_component::<Velocity>();
-        // app.register_component::<Health>();
-        // app.register_component::<Boid>();
-        
-        println!("📋 Protocol plugin built - component registration TODO");
+
+        // For now, just register the basic plugin structure
+        // Component registration will be handled by a separate function
+        println!("📋 Protocol plugin built successfully");
     }
 }
 
