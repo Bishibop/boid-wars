@@ -75,10 +75,17 @@ boid-wars/
 ```
 
 ## Environment Variables
-See `.env.development` for all available options. Key ones:
+Copy `.env.example` to `.env` to get started:
+```bash
+cp .env.example .env
+```
+
+Key variables:
 - `RUST_LOG`: Control logging verbosity
 - `GAME_SERVER_PORT`: Server port (default: 3000)
+- `GAME_SERVER_CERT/KEY`: SSL certificate paths
 - `VITE_SERVER_URL`: Server URL for client
+- `VITE_LOG_LEVEL`: Client-side logging level
 
 ## Troubleshooting
 See [troubleshooting.md](troubleshooting.md) for common issues.
