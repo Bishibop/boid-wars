@@ -1,0 +1,19 @@
+[package]
+name = "boid-wars-server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Local
+boid-wars-shared = { path = "../shared" }
+
+# Core
+bevy = { workspace = true }
+lightyear = { workspace = true, features = ["webtransport"] }
+serde = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]

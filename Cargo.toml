@@ -14,7 +14,7 @@ authors = ["Boid Wars Team"]
 [workspace.dependencies]
 # Shared dependencies with consistent versions
 bevy = "0.14"
-lightyear = "0.18"
+lightyear = "0.17"
 serde = { version = "1.0", features = ["derive"] }
 
 # Logging
