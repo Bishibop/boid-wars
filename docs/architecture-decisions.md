@@ -1,21 +1,21 @@
 # Architecture Decision Records
 
-## ADR-001: Use Lightyear 0.17 instead of 0.21
-**Date**: 2025-01-10
-**Status**: Accepted
+## ADR-001: Use Lightyear 0.21 with Bevy 0.16
+**Date**: 2025-01-10  
+**Status**: Superseded (Updated 2025-01-15)
 
 ### Context
-Lightyear 0.21 requires nightly Rust due to use of unstable "let chains" feature. This adds complexity and potential instability to our development process.
+Originally chose Lightyear 0.17 due to nightly Rust concerns, but encountered WASM compatibility issues due to bevy version conflicts.
 
 ### Decision
-Use Lightyear 0.17, which works with stable Rust.
+Upgrade to Lightyear 0.21 with Bevy 0.16 to resolve WASM build failures.
 
 ### Consequences
-- ✅ Stable Rust toolchain
-- ✅ Faster development setup
-- ✅ More reliable builds
-- ❌ Missing some newer features from 0.21
-- ❌ May need to migrate later if 0.21 features become essential
+- ✅ WASM builds work correctly
+- ✅ Consistent bevy versions across dependencies
+- ✅ Access to Lightyear 0.21 improvements (entity-based networking)
+- ❌ Major API changes require new implementation approach
+- ❌ Some features need reimplementation (Resource→Entity model)
 
 ---
 

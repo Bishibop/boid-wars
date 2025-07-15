@@ -6,25 +6,39 @@ Boid Wars is a multiplayer twin-stick bullet-hell space shooter featuring massiv
 
 ## Core Requirements
 
-- **Players**: 64 players per match (target), 8-16 minimum viable
-- **Enemies**: 10,000+ boids active simultaneously (100k+ stretch goal)
-- **Format**: Battle royale with shrinking play area
+- **Players**: 
+  - 8-16 players (medium-term target)
+  - 64 players (long-term ambition)
+  - Single player and 2-player co-op modes
+- **Enemies**: 10,000+ AI-controlled boids (enemy swarms that attack players)
+- **Game Modes**:
+  - **Battle Royale** (primary): Last player standing with shrinking play area
+  - **Single Player**: Survival against boid swarms
+  - **Co-op** (2 players): Team survival mode
 - **Platform**: Browser-based (WebGL/Canvas)
 - **Latency**: Ultra-low latency required for bullet-hell gameplay
+
+## Gameplay Mechanics
+
+- **PvPvE**: Players fight both each other and AI boid swarms
+- **Twin-Stick Controls**: Independent movement and aiming
+- **Temporary Alliances**: Players can form temporary teams with friendly fire toggle
+- **Projectile Combat**: Players shoot projectiles at boids and other players
+- **Boid Behaviors**: AI enemies with varied behaviors (hunt, swarm, patrol, flee)
 
 ## Technology Stack
 
 ### Backend
 - **Language**: Rust
-- **Game Framework**: Bevy ECS
-- **Networking**: Lightyear (WebTransport/QUIC)
+- **Game Framework**: Bevy ECS 0.16
+- **Networking**: Lightyear 0.21 (WebTransport/QUIC)
 - **Physics**: Rapier 2D
 - **Spatial Indexing**: R-tree (rstar crate)
 
 ### Frontend
 - **Language**: TypeScript
 - **Rendering**: Pixi.js v8 (WebGL)
-- **Networking**: Lightyear WASM client (thin bridge)
+- **Networking**: Lightyear 0.21 WASM client (thin bridge)
 - **Build Tool**: Vite
 - **Audio**: Howler.js
 
@@ -63,7 +77,7 @@ Boid Wars is a multiplayer twin-stick bullet-hell space shooter featuring massiv
 - **Bundle Size**: ~500KB vs 5-10MB for full Bevy WASM
 - **Performance**: Pixi.js optimized for 2D sprite rendering, handles 1000+ entities easily
 - **Developer Experience**: Fast iteration, excellent debugging tools
-- **WASM Bridge**: Get Lightyear's networking benefits without full WASM overhead
+- **WASM Bridge**: Get Lightyear 0.21's entity-based networking benefits without full WASM overhead
 
 ### 4. Server-Authoritative Architecture
 
@@ -91,18 +105,20 @@ Boid Wars is a multiplayer twin-stick bullet-hell space shooter featuring massiv
 ```
 Responsibilities:
 - Authoritative game state
-- Boid simulation (flocking, combat AI)
+- Boid AI simulation (10k+ enemies with flocking behaviors)
 - Physics simulation (Rapier)
 - Player input processing
-- Hit detection
-- Zone shrinking logic
-- Entity replication via Lightyear
+- Hit detection (projectiles vs players/boids)
+- Zone shrinking logic (battle royale mode)
+- Temporary alliance management
+- Game mode logic (battle royale, single player, co-op)
+- Entity replication via Lightyear 0.21
 ```
 
 ### 2. WASM Networking Bridge
 ```
 Responsibilities:
-- Lightyear client protocol handling
+- Lightyear 0.21 client protocol handling (entity-based networking)
 - Entity replication/interpolation
 - Input buffering and sending
 - Binary protocol parsing
@@ -132,15 +148,18 @@ Responsibilities:
 ## Data Flow
 
 ```
-1. Player connects to matchmaker
-2. Matchmaker spawns game server in nearest region
+1. Player selects game mode (battle royale/single/co-op)
+2. Matchmaker assigns to server (or spawns new instance)
 3. Player establishes WebTransport connection to game server
 4. Game loop:
-   a. Client sends input (60Hz)
-   b. Server processes physics (60Hz)
-   c. Server updates boids (30Hz)
-   d. Server sends state deltas (20Hz)
-   e. Client interpolates and renders (60+ FPS)
+   a. Client sends input (60Hz) - movement, aiming, shooting, alliance requests
+   b. Server processes:
+      - Player physics and projectiles (60Hz)
+      - Boid AI decisions (30Hz)
+      - Collision detection (60Hz)
+      - Alliance state changes
+   c. Server sends state deltas (30Hz) - positions, health, alliances
+   d. Client interpolates and renders (60+ FPS)
 ```
 
 ## Performance Optimizations
@@ -159,20 +178,29 @@ Responsibilities:
 
 ## Scaling Strategy
 
-### Vertical Scaling
-- Each game server handles one 64-player match
-- 2-4 CPU cores, 4-8GB RAM per instance
-- Boid count can be adjusted based on performance
+### Initial Deployment
+- Start with single server/region
+- Focus on core gameplay with 8-16 players
+- 10,000+ boids per match
+- Iterate and optimize based on performance metrics
 
-### Horizontal Scaling
-- Multiple game servers across regions
-- Matchmaker distributes players
+### Vertical Scaling
+- Start with 2 CPU cores, 4GB RAM
+- Scale up as needed when hitting performance limits
+- Monitor: CPU usage, memory, network bandwidth, frame timing
+
+### Future Horizontal Scaling
+- Add regions based on player geography
+- Edge deployment for ultra-low latency
+- Matchmaker to distribute players to nearest server
 - No inter-server communication needed
 
-### Geographic Distribution
-- Deploy to Fly.io regions based on player density
-- Initial regions: US-East, US-West, EU, Asia-Pacific
-- Anycast routing to nearest server
+### Optimization Approach
+1. Implement features with reasonable performance
+2. Profile to identify bottlenecks
+3. Optimize hot paths
+4. Scale hardware if needed
+5. Repeat until target metrics achieved
 
 ## Security Considerations
 

@@ -22,7 +22,7 @@ fn setup(mut commands: Commands) {
 fn log_status(time: Res<Time>, mut query: Query<&mut StatusTimer>) {
     for mut status in query.iter_mut() {
         if status.timer.tick(time.delta()).just_finished() {
-            println!("📊 Server running - Uptime: {:.1}s", time.elapsed_seconds());
+            println!("📊 Server running - Uptime: {:.1}s", time.elapsed_secs());
         }
     }
 }

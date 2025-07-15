@@ -3,8 +3,8 @@
 # But use multiple units in dev for faster compilation
 
 [target.wasm32-unknown-unknown]
-# Optimize WASM for size
-rustflags = ["-C", "opt-level=z"]
+# Optimize WASM for size and configure getrandom backend
+rustflags = ["-C", "opt-level=z", "--cfg", "getrandom_backend=\"wasm_js\""]
 
 [net]
 # Use git CLI for authentication (useful for private repos)
