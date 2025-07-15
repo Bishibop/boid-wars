@@ -1,11 +1,11 @@
-import { Application, Graphics, Text } from 'pixi.js';
-import { logger } from './logger';
-import { perfMonitor } from './perf';
+import { Application, Graphics, Text } from "pixi.js";
+import { logger } from "./logger";
+import { perfMonitor } from "./perf";
 
 // Status element
-const statusEl = document.getElementById('status')!;
+const statusEl = document.getElementById("status")!;
 
-logger.info('Boid Wars Client Starting...');
+logger.info("Boid Wars Client Starting...");
 
 // Initialize Pixi.js
 const app = new Application({
@@ -16,7 +16,7 @@ const app = new Application({
 });
 
 // Add canvas to DOM
-document.getElementById('game-container')!.appendChild(app.canvas as HTMLCanvasElement);
+document.getElementById("game-container")!.appendChild(app.canvas);
 
 // Add performance monitor
 if (import.meta.env.DEV) {
@@ -33,7 +33,7 @@ circle.y = app.screen.height / 2;
 app.stage.addChild(circle);
 
 // Add connection status text
-const connectionText = new Text('Waiting for WASM...', {
+const connectionText = new Text("Waiting for WASM...", {
   fill: 0xffffff,
   fontSize: 14,
 });
@@ -54,18 +54,18 @@ app.ticker.add(() => {
 });
 
 // Update status
-statusEl.textContent = 'Client initialized - Pixi.js running';
-statusEl.className = 'connected';
+statusEl.textContent = "Client initialized - Pixi.js running";
+statusEl.className = "connected";
 
 // Placeholder for WASM integration
-async function initializeWasm() {
+function initializeWasm(): void {
   try {
     // This will be replaced with actual WASM module import
-    logger.debug('WASM integration will go here');
-    connectionText.text = 'WASM not yet integrated';
+    logger.debug("WASM integration will go here");
+    connectionText.text = "WASM not yet integrated";
   } catch (error) {
-    logger.error('Failed to initialize WASM:', error);
-    connectionText.text = 'WASM initialization failed';
+    logger.error("Failed to initialize WASM:", error);
+    connectionText.text = "WASM initialization failed";
   }
 }
 
@@ -73,4 +73,4 @@ async function initializeWasm() {
 initializeWasm();
 
 // Export for debugging
-(window as any).pixiApp = app;
+(window as unknown as Record<string, unknown>).pixiApp = app;

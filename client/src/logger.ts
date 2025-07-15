@@ -8,17 +8,17 @@ export enum LogLevel {
 }
 
 const LOG_COLORS = {
-  [LogLevel.DEBUG]: 'color: #888',
-  [LogLevel.INFO]: 'color: #0088ff',
-  [LogLevel.WARN]: 'color: #ff8800',
-  [LogLevel.ERROR]: 'color: #ff0000',
+  [LogLevel.DEBUG]: "color: #888",
+  [LogLevel.INFO]: "color: #0088ff",
+  [LogLevel.WARN]: "color: #ff8800",
+  [LogLevel.ERROR]: "color: #ff0000",
 };
 
 const LOG_PREFIXES = {
-  [LogLevel.DEBUG]: '[DEBUG]',
-  [LogLevel.INFO]: '[INFO]',
-  [LogLevel.WARN]: '[WARN]',
-  [LogLevel.ERROR]: '[ERROR]',
+  [LogLevel.DEBUG]: "[DEBUG]",
+  [LogLevel.INFO]: "[INFO]",
+  [LogLevel.WARN]: "[WARN]",
+  [LogLevel.ERROR]: "[ERROR]",
 };
 
 class Logger {
@@ -31,15 +31,17 @@ class Logger {
   }
 
   private parseLevel(level?: string): LogLevel | null {
-    if (!level) return null;
+    if (level === undefined || level === null || level === "") {
+      return null;
+    }
     switch (level.toLowerCase()) {
-      case 'debug':
+      case "debug":
         return LogLevel.DEBUG;
-      case 'info':
+      case "info":
         return LogLevel.INFO;
-      case 'warn':
+      case "warn":
         return LogLevel.WARN;
-      case 'error':
+      case "error":
         return LogLevel.ERROR;
       default:
         return null;
@@ -47,12 +49,15 @@ class Logger {
   }
 
   private log(level: LogLevel, message: string, ...args: unknown[]): void {
-    if (level < this.level) return;
+    if (level < this.level) {
+      return;
+    }
 
-    const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+    const timestamp = new Date().toISOString().split("T")[1].split(".")[0];
     const prefix = `%c${timestamp} ${LOG_PREFIXES[level]}`;
     const style = LOG_COLORS[level];
 
+    // eslint-disable-next-line no-console
     console.log(prefix, style, message, ...args);
   }
 
@@ -80,5 +85,5 @@ class Logger {
 export const logger = new Logger();
 
 // Export for debugging
-(window as any).logger = logger;
-(window as any).LogLevel = LogLevel;
+(window as unknown as Record<string, unknown>).logger = logger;
+(window as unknown as Record<string, unknown>).LogLevel = LogLevel;

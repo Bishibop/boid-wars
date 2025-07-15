@@ -52,8 +52,8 @@ export class PerfMonitor {
   }
 
   createDisplay(container: HTMLElement): HTMLDivElement {
-    const display = document.createElement('div');
-    display.id = 'perf-display';
+    const display = document.createElement("div");
+    display.id = "perf-display";
     display.style.cssText = `
       position: fixed;
       top: 10px;
@@ -87,4 +87,4 @@ export class PerfMonitor {
 export const perfMonitor = new PerfMonitor();
 
 // Export for debugging
-(window as any).perfMonitor = perfMonitor;
+(window as unknown as Record<string, unknown>).perfMonitor = perfMonitor;
