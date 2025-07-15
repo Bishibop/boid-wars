@@ -1,7 +1,11 @@
 import { Application, Graphics, Text } from 'pixi.js';
+import { logger } from './logger';
+import { perfMonitor } from './perf';
 
 // Status element
 const statusEl = document.getElementById('status')!;
+
+logger.info('Boid Wars Client Starting...');
 
 // Initialize Pixi.js
 const app = new Application({
@@ -13,6 +17,11 @@ const app = new Application({
 
 // Add canvas to DOM
 document.getElementById('game-container')!.appendChild(app.canvas as HTMLCanvasElement);
+
+// Add performance monitor
+if (import.meta.env.DEV) {
+  perfMonitor.createDisplay(document.body);
+}
 
 // Create a simple circle that will move when connected
 const circle = new Graphics();
@@ -34,10 +43,14 @@ app.stage.addChild(connectionText);
 
 // Animation loop
 let time = 0;
-app.ticker.add((delta) => {
-  time += delta * 0.01;
+app.ticker.add(() => {
+  time += app.ticker.deltaTime * 0.01;
   // Simple animation to show rendering works
   circle.y = app.screen.height / 2 + Math.sin(time) * 50;
+
+  // Update performance monitor
+  perfMonitor.update();
+  perfMonitor.setEntities(app.stage.children.length);
 });
 
 // Update status
@@ -48,10 +61,10 @@ statusEl.className = 'connected';
 async function initializeWasm() {
   try {
     // This will be replaced with actual WASM module import
-    console.log('WASM integration will go here');
+    logger.debug('WASM integration will go here');
     connectionText.text = 'WASM not yet integrated';
   } catch (error) {
-    console.error('Failed to initialize WASM:', error);
+    logger.error('Failed to initialize WASM:', error);
     connectionText.text = 'WASM initialization failed';
   }
 }
