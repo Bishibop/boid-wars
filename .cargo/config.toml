@@ -1,0 +1,16 @@
+[build]
+# Compile with 1 codegen unit for better optimization in release
+# But use multiple units in dev for faster compilation
+
+[target.wasm32-unknown-unknown]
+# Optimize WASM for size
+rustflags = ["-C", "opt-level=z"]
+
+[net]
+# Use git CLI for authentication (useful for private repos)
+git-fetch-with-cli = true
+
+[alias]
+# Useful shortcuts
+check-wasm = "check --target wasm32-unknown-unknown"
+build-wasm = "build --target wasm32-unknown-unknown"
