@@ -9,9 +9,7 @@ use_field_init_shorthand = true
 # Edition
 edition = "2021"
 
-# Preserve alignment in similar code patterns (good for game data)
-format_code_in_doc_comments = true
-
-# Import organization
-imports_granularity = "Module"
-group_imports = "StdExternalCrate"
+# Only stable features - removed unstable ones:
+# - format_code_in_doc_comments (nightly only)
+# - imports_granularity (nightly only) 
+# - group_imports (nightly only)

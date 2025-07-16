@@ -16,7 +16,7 @@ bevy = { version = "0.16", default-features = false, features = [
 ] }
 
 # Lightyear networking (0.20 for compatibility with server)
-lightyear = { version = "0.20", features = ["webtransport"] }
+lightyear = { version = "0.20", features = ["websocket", "webtransport"] }
 
 # Shared types
 boid-wars-shared = { path = "../shared" }

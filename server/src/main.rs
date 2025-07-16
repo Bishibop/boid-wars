@@ -6,36 +6,41 @@ use lightyear::server::message::ReceiveMessage;
 use std::net::SocketAddr;
 use tracing::{debug, info};
 
-// Server configuration constants
-const SERVER_ADDR: &str = "127.0.0.1:5001";
-const STATUS_LOG_INTERVAL: f32 = 5.0;
-const DEV_KEY: [u8; 32] = [0u8; 32];
-const PROTOCOL_ID: u64 = 12345;
-
-// Game spawn constants
-const SPAWN_X: f32 = 400.0;
-const SPAWN_Y: f32 = 300.0;
-
 fn main() {
     info!("🚀 Boid Wars Server Starting...");
 
+    // Load configuration
+    let network_config = &*NETWORK_CONFIG;
+    let game_config = &*GAME_CONFIG;
+    let _server_settings = &*SERVER_CONFIG;
+
     // Configure server address
-    let server_addr: SocketAddr = SERVER_ADDR.parse().expect("Failed to parse server address");
+    let server_addr: SocketAddr = network_config
+        .server_addr
+        .parse()
+        .expect("Failed to parse server address");
 
     info!("📡 Server will listen on {}", server_addr);
+    info!(
+        "🎮 Game area: {}x{}",
+        game_config.game_width, game_config.game_height
+    );
 
     // Create server config
-    let server_config = create_websocket_config(server_addr);
+    let lightyear_config = create_websocket_config(server_addr, network_config);
 
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins(ServerPlugins::new(server_config))
+        .add_plugins(ServerPlugins::new(lightyear_config))
         .add_plugins(ProtocolPlugin)
         .add_plugins(BoidWarsServerPlugin)
         .run();
 }
 
-fn create_websocket_config(server_addr: SocketAddr) -> ServerConfig {
+fn create_websocket_config(
+    server_addr: SocketAddr,
+    network_config: &NetworkConfig,
+) -> lightyear::prelude::server::ServerConfig {
     info!("🔧 Creating WebSocket server config...");
 
     // WebSocket transport - NO CERTIFICATES!
@@ -44,15 +49,15 @@ fn create_websocket_config(server_addr: SocketAddr) -> ServerConfig {
 
     // Use Netcode auth with a shared key for dev
     let netcode_config = NetcodeConfig::default()
-        .with_protocol_id(PROTOCOL_ID)
-        .with_key(DEV_KEY);
+        .with_protocol_id(network_config.protocol_id)
+        .with_key(network_config.dev_key);
 
     let net_config = NetConfig::Netcode {
         config: netcode_config,
         io,
     };
 
-    ServerConfig {
+    lightyear::prelude::server::ServerConfig {
         shared: SharedConfig::default(),
         net: vec![net_config],
         packet: Default::default(),
@@ -83,6 +88,10 @@ impl Plugin for BoidWarsServerPlugin {
 fn setup_server(mut commands: Commands) {
     info!("✅ Server initialized");
 
+    // Load configuration
+    let game_config = &*GAME_CONFIG;
+    let _server_settings = &*SERVER_CONFIG;
+
     // Start the Lightyear server
     commands.queue(|world: &mut World| {
         world.start_server();
@@ -90,12 +99,16 @@ fn setup_server(mut commands: Commands) {
     });
 
     // Create status timer
-    commands.spawn(StatusTimer {
-        timer: Timer::from_seconds(STATUS_LOG_INTERVAL, TimerMode::Repeating),
-    });
+    commands.insert_resource(StatusTimer(Timer::from_seconds(
+        _server_settings.status_log_interval,
+        TimerMode::Repeating,
+    )));
 
     // Spawn the single boid for Iteration 0
-    commands.spawn((BoidBundle::new(1, SPAWN_X, SPAWN_Y), Replicate::default()));
+    commands.spawn((
+        BoidBundle::new(1, game_config.spawn_x, game_config.spawn_y),
+        Replicate::default(),
+    ));
 
     info!("🤖 Spawned initial boid with replication");
     info!("🌐 Server ready for client connections");
@@ -103,6 +116,8 @@ fn setup_server(mut commands: Commands) {
 
 // Handle new client connections
 fn handle_connections(mut commands: Commands, mut connections: EventReader<ConnectEvent>) {
+    let game_config = &*GAME_CONFIG;
+
     for event in connections.read() {
         let client_id = event.client_id;
         info!("🎮 Client {} connected!", client_id);
@@ -113,8 +128,8 @@ fn handle_connections(mut commands: Commands, mut connections: EventReader<Conne
                 PlayerBundle::new(
                     client_id.to_bits(),
                     format!("Player {}", client_id.to_bits()),
-                    SPAWN_X,
-                    SPAWN_Y,
+                    game_config.spawn_x,
+                    game_config.spawn_y,
                 ),
                 Replicate {
                     // Player is controlled by the connected client
@@ -139,6 +154,8 @@ fn handle_player_input(
     mut message_events: EventReader<ReceiveMessage<PlayerInput>>,
     mut players: Query<(&Player, &mut Velocity), With<Player>>,
 ) {
+    let game_config = &*GAME_CONFIG;
+
     for event in message_events.read() {
         let client_id = event.from;
         let input = &event.message;
@@ -147,8 +164,8 @@ fn handle_player_input(
         for (player, mut velocity) in players.iter_mut() {
             if player.id == client_id.to_bits() {
                 // Apply movement input to velocity
-                velocity.0.x = input.movement.x * PLAYER_SPEED;
-                velocity.0.y = input.movement.y * PLAYER_SPEED;
+                velocity.0.x = input.movement.x * game_config.player_speed;
+                velocity.0.y = input.movement.y * game_config.player_speed;
 
                 if input.movement.length() > 0.0 {
                     debug!("📍 Player {} moving: {:?}", player.id, input.movement);
@@ -160,25 +177,24 @@ fn handle_player_input(
 
 fn log_status(
     time: Res<Time>,
-    mut query: Query<&mut StatusTimer>,
+    mut status_timer: ResMut<StatusTimer>,
     players: Query<&Position, With<Player>>,
     boids: Query<&Position, With<Boid>>,
 ) {
-    for mut status in query.iter_mut() {
-        if status.timer.tick(time.delta()).just_finished() {
-            let player_count = players.iter().len();
-            let boid_count = boids.iter().len();
-            info!(
-                "📊 Server running - Uptime: {:.1}s | Players: {} | Boids: {}",
-                time.elapsed_secs(),
-                player_count,
-                boid_count
-            );
-        }
+    if status_timer.0.tick(time.delta()).just_finished() {
+        let player_count = players.iter().len();
+        let boid_count = boids.iter().len();
+        info!(
+            "📊 Server running - Uptime: {:.1}s | Players: {} | Boids: {}",
+            time.elapsed_secs(),
+            player_count,
+            boid_count
+        );
     }
 }
 
 fn move_players(time: Res<Time>, mut players: Query<(&mut Position, &Velocity), With<Player>>) {
+    let game_config = &*GAME_CONFIG;
     let delta = time.delta_secs();
 
     for (mut pos, vel) in players.iter_mut() {
@@ -188,12 +204,13 @@ fn move_players(time: Res<Time>, mut players: Query<(&mut Position, &Velocity), 
         pos.0.y += vel.0.y * delta;
 
         // Keep player in bounds
-        pos.0.x = pos.0.x.clamp(0.0, GAME_WIDTH);
-        pos.0.y = pos.0.y.clamp(0.0, GAME_HEIGHT);
+        pos.0.x = pos.0.x.clamp(0.0, game_config.game_width);
+        pos.0.y = pos.0.y.clamp(0.0, game_config.game_height);
     }
 }
 
 fn move_boids(time: Res<Time>, mut boids: Query<(&mut Position, &Velocity), With<Boid>>) {
+    let game_config = &*GAME_CONFIG;
     let delta = time.delta_secs();
 
     for (mut pos, vel) in boids.iter_mut() {
@@ -202,8 +219,8 @@ fn move_boids(time: Res<Time>, mut boids: Query<(&mut Position, &Velocity), With
         pos.0.y += vel.0.y * delta;
 
         // Keep boid in bounds
-        pos.0.x = pos.0.x.clamp(0.0, GAME_WIDTH);
-        pos.0.y = pos.0.y.clamp(0.0, GAME_HEIGHT);
+        pos.0.x = pos.0.x.clamp(0.0, game_config.game_width);
+        pos.0.y = pos.0.y.clamp(0.0, game_config.game_height);
     }
 }
 
@@ -211,6 +228,8 @@ fn update_boid_ai(
     mut boids: Query<(&Position, &mut Velocity), With<Boid>>,
     players: Query<&Position, (With<Player>, Without<Boid>)>,
 ) {
+    let game_config = &*GAME_CONFIG;
+
     for (boid_pos, mut boid_vel) in boids.iter_mut() {
         // Find nearest player
         let nearest_player = players.iter().min_by(|a, b| {
@@ -228,17 +247,15 @@ fn update_boid_ai(
             let distance = (dx * dx + dy * dy).sqrt();
 
             if distance > 0.0 {
-                boid_vel.0.x = (dx / distance) * BOID_SPEED;
-                boid_vel.0.y = (dy / distance) * BOID_SPEED;
+                boid_vel.0.x = (dx / distance) * game_config.boid_speed;
+                boid_vel.0.y = (dy / distance) * game_config.boid_speed;
             }
         }
     }
 }
 
-#[derive(Component)]
-struct StatusTimer {
-    timer: Timer,
-}
+#[derive(Resource)]
+struct StatusTimer(Timer);
 
 #[derive(Resource, Default)]
 struct GameState;

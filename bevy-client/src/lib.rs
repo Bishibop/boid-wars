@@ -31,11 +31,18 @@ pub fn run() {
     );
 
     // Add Lightyear client plugins
-    let client_config = create_client_config();
-    app.add_plugins(ClientPlugins::new(client_config));
+    let lightyear_config = create_client_config();
+    app.add_plugins(ClientPlugins::new(lightyear_config));
 
     // Add shared protocol
     app.add_plugins(ProtocolPlugin);
+
+    // Initialize performance timer
+    let client_settings = &*CLIENT_CONFIG;
+    app.insert_resource(PerformanceTimer(Timer::from_seconds(
+        client_settings.performance_log_interval,
+        TimerMode::Repeating,
+    )));
 
     // Add systems
     app.add_systems(Startup, (setup_scene, connect_to_server));
@@ -54,17 +61,17 @@ pub fn run() {
     app.run();
 }
 
-// Configuration constants
-const SERVER_ADDR: &str = "127.0.0.1:5001";
-const DEV_KEY: [u8; 32] = [0u8; 32];
-const PROTOCOL_ID: u64 = 12345;
-const PERFORMANCE_LOG_INTERVAL: f32 = 5.0;
+// Configuration is now loaded from the shared config system
 
 /// Create Lightyear client configuration
-fn create_client_config() -> ClientConfig {
+fn create_client_config() -> lightyear::prelude::client::ClientConfig {
     info!("🔧 Creating client config for WebSocket connection...");
 
-    let server_addr: SocketAddr = SERVER_ADDR.parse().expect("Failed to parse server address");
+    let network_config = &*NETWORK_CONFIG;
+    let server_addr: SocketAddr = network_config
+        .server_addr
+        .parse()
+        .expect("Failed to parse server address");
     info!("📡 Will connect to server: {}", server_addr);
 
     // Use WebSocket (no certificates needed!)
@@ -78,12 +85,12 @@ fn create_client_config() -> ClientConfig {
         auth: Authentication::Manual {
             server_addr,
             client_id: 1,
-            private_key: DEV_KEY,
-            protocol_id: PROTOCOL_ID,
+            private_key: network_config.dev_key,
+            protocol_id: network_config.protocol_id,
         },
     };
 
-    ClientConfig {
+    lightyear::prelude::client::ClientConfig {
         shared: SharedConfig::default(),
         net: net_config,
         replication: Default::default(),
@@ -103,14 +110,19 @@ fn setup_scene(mut commands: Commands, _asset_server: Res<AssetServer>) {
     info!("📷 Camera ready - waiting for server entities...");
 }
 
+/// Performance monitoring timer resource
+#[derive(Resource)]
+struct PerformanceTimer(Timer);
+
 /// Simple performance monitoring system
 fn performance_monitor(
     time: Res<Time>,
+    mut perf_timer: ResMut<PerformanceTimer>,
     players: Query<Entity, With<Player>>,
     boids: Query<Entity, With<Boid>>,
 ) {
-    // Log performance at regular intervals
-    if time.elapsed_secs() % PERFORMANCE_LOG_INTERVAL < time.delta_secs() {
+    // Log performance at regular intervals using proper timer
+    if perf_timer.0.tick(time.delta()).just_finished() {
         let player_count = players.iter().count();
         let boid_count = boids.iter().count();
         let fps = 1.0 / time.delta_secs();

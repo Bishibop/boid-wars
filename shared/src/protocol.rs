@@ -3,6 +3,8 @@ use bevy::prelude::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::GAME_CONFIG;
+
 // Re-export Vec2 for use in other crates
 pub use bevy::prelude::Vec2;
 
@@ -56,9 +58,10 @@ pub struct Health {
 
 impl Default for Health {
     fn default() -> Self {
+        let default_health = GAME_CONFIG.default_health;
         Self {
-            current: DEFAULT_HEALTH,
-            max: DEFAULT_HEALTH,
+            current: default_health,
+            max: default_health,
         }
     }
 }
@@ -133,11 +136,11 @@ impl BoidBundle {
     }
 }
 
-// Channels - use derive macro for Lightyear 0.20
-#[derive(Debug, Channel)]
+// Channels - use Channel derive macro for Lightyear 0.20
+#[derive(Channel)]
 pub struct UnreliableChannel;
 
-#[derive(Debug, Channel)]
+#[derive(Channel)]
 pub struct ReliableChannel;
 
 // Protocol Plugin
@@ -182,9 +185,4 @@ impl Plugin for ProtocolPlugin {
     }
 }
 
-// Game constants
-pub const PLAYER_SPEED: f32 = 200.0;
-pub const BOID_SPEED: f32 = 150.0;
-pub const GAME_WIDTH: f32 = 800.0;
-pub const GAME_HEIGHT: f32 = 600.0;
-pub const DEFAULT_HEALTH: f32 = 100.0;
+// Game constants moved to config system - use GAME_CONFIG at runtime
