@@ -45,7 +45,7 @@ pub fn run() {
     )));
 
     // Add systems
-    app.add_systems(Startup, (setup_scene, connect_to_server));
+    app.add_systems(Startup, (setup_scene, connect_to_server, setup_ui));
     app.add_systems(
         Update,
         (
@@ -54,6 +54,8 @@ pub fn run() {
             render_networked_entities,
             sync_position_to_transform,
             send_player_input,
+            debug_player_count,
+            button_system,
         ),
     );
 
@@ -104,10 +106,42 @@ fn create_client_config() -> lightyear::prelude::client::ClientConfig {
 
 /// Scene setup
 fn setup_scene(mut commands: Commands, _asset_server: Res<AssetServer>) {
-    // Spawn a 2D camera
-    commands.spawn(Camera2d);
+    // Spawn a 2D camera centered on the game area
+    let game_config = &*GAME_CONFIG;
+    commands.spawn((
+        Camera2d,
+        Transform::from_xyz(game_config.game_width / 2.0, game_config.game_height / 2.0, 1000.0),
+    ));
 
-    info!("📷 Camera ready - waiting for server entities...");
+    // Add arena boundary visualization
+    let boundary_color = Color::srgb(0.5, 0.5, 0.5);
+    let boundary_width = 5.0;
+    
+    // Top boundary
+    commands.spawn((
+        Sprite::from_color(boundary_color, Vec2::new(game_config.game_width, boundary_width)),
+        Transform::from_xyz(game_config.game_width / 2.0, game_config.game_height - boundary_width / 2.0, 0.0),
+    ));
+    
+    // Bottom boundary
+    commands.spawn((
+        Sprite::from_color(boundary_color, Vec2::new(game_config.game_width, boundary_width)),
+        Transform::from_xyz(game_config.game_width / 2.0, boundary_width / 2.0, 0.0),
+    ));
+    
+    // Left boundary
+    commands.spawn((
+        Sprite::from_color(boundary_color, Vec2::new(boundary_width, game_config.game_height)),
+        Transform::from_xyz(boundary_width / 2.0, game_config.game_height / 2.0, 0.0),
+    ));
+    
+    // Right boundary
+    commands.spawn((
+        Sprite::from_color(boundary_color, Vec2::new(boundary_width, game_config.game_height)),
+        Transform::from_xyz(game_config.game_width - boundary_width / 2.0, game_config.game_height / 2.0, 0.0),
+    ));
+
+    info!("📷 Camera ready at center of {}x{} arena", game_config.game_width, game_config.game_height);
 }
 
 /// Performance monitoring timer resource
@@ -160,26 +194,36 @@ fn handle_connection_events(
 // Type aliases to simplify complex queries
 type UnrenderedPlayer = (With<Player>, Without<Sprite>);
 type UnrenderedBoid = (With<Boid>, Without<Sprite>);
+type UnrenderedObstacle = (With<Obstacle>, Without<Sprite>);
 
-/// Render networked entities (players and boids from server)
+/// Render networked entities (players, boids, and obstacles from server)
 fn render_networked_entities(
     mut commands: Commands,
-    players: Query<(Entity, &Position), UnrenderedPlayer>,
+    players: Query<(Entity, &Position, &Player), UnrenderedPlayer>,
     boids: Query<(Entity, &Position), UnrenderedBoid>,
+    obstacles: Query<(Entity, &Position, &Obstacle), UnrenderedObstacle>,
 ) {
     // Add visual representation to networked players
-    for (entity, position) in players.iter() {
+    for (entity, position, _player) in players.iter() {
         commands.entity(entity).insert((
-            Sprite::from_color(Color::srgb(0.0, 1.0, 0.0), Vec2::new(10.0, 10.0)),
+            Sprite::from_color(Color::srgb(0.0, 1.0, 0.0), Vec2::new(10.0, 10.0)), // Original small size
             Transform::from_translation(Vec3::new(position.x, position.y, 1.0)),
         ));
     }
 
-    // Add visual representation to networked boids
+    // Add visual representation to networked boids (includes AI players)
     for (entity, position) in boids.iter() {
         commands.entity(entity).insert((
-            Sprite::from_color(Color::srgb(1.0, 0.0, 0.0), Vec2::new(8.0, 8.0)),
+            Sprite::from_color(Color::srgb(1.0, 0.0, 0.0), Vec2::new(8.0, 8.0)), // Original small size
             Transform::from_translation(Vec3::new(position.x, position.y, 1.0)),
+        ));
+    }
+
+    // Add visual representation to networked obstacles
+    for (entity, position, obstacle) in obstacles.iter() {
+        commands.entity(entity).insert((
+            Sprite::from_color(Color::srgb(0.5, 0.3, 0.1), Vec2::new(obstacle.width, obstacle.height)), // Brown obstacles
+            Transform::from_translation(Vec3::new(position.x, position.y, 0.5)), // Slightly behind other entities
         ));
     }
 }
@@ -197,18 +241,22 @@ fn send_player_input(mut connection: ResMut<ConnectionManager>, keys: Res<Button
     let mut movement = Vec2::ZERO;
     let fire = false;
 
-    // Basic WASD movement
+    // Basic WASD movement with debug logging
     if keys.pressed(KeyCode::KeyW) {
         movement.y += 1.0;
+        info!("🎮 CLIENT: W key pressed");
     }
     if keys.pressed(KeyCode::KeyS) {
         movement.y -= 1.0;
+        info!("🎮 CLIENT: S key pressed");
     }
     if keys.pressed(KeyCode::KeyA) {
         movement.x -= 1.0;
+        info!("🎮 CLIENT: A key pressed");
     }
     if keys.pressed(KeyCode::KeyD) {
         movement.x += 1.0;
+        info!("🎮 CLIENT: D key pressed");
     }
 
     // Normalize movement
@@ -219,14 +267,120 @@ fn send_player_input(mut connection: ResMut<ConnectionManager>, keys: Res<Button
     // For now, aim in the same direction as movement
     let aim = movement;
 
-    let input = PlayerInput {
-        movement,
-        aim,
-        fire,
-    };
+    let input = PlayerInput::new(movement, aim, fire);
+    
+    // Removed debug logs
 
-    // Send input to server as a message
-    if let Err(e) = connection.send_message::<UnreliableChannel, PlayerInput>(&input) {
-        info!("⚠️ Failed to send input: {:?}", e);
+    // Removed debug logs
+
+    // Send input to server as a message - no debug logs
+    let _ = connection.send_message::<UnreliableChannel, PlayerInput>(&input);
+}
+
+/// Debug system to count players and their positions
+fn debug_player_count(
+    all_players: Query<(&Player, &Position, &Transform), With<Player>>,
+    rendered_players: Query<&Player, With<Sprite>>,
+    mut timer: Local<f32>,
+    time: Res<Time>,
+) {
+    *timer += time.delta_secs();
+    if *timer > 2.0 {
+        *timer = 0.0;
+        info!("🔍 Total players: {} | Rendered players: {}", 
+            all_players.iter().count(), 
+            rendered_players.iter().count()
+        );
+        
+        // Show position info for each player
+        for (player, position, transform) in all_players.iter() {
+            info!("🔍 Player {} - Position: ({:.1}, {:.1}) | Transform: ({:.1}, {:.1})", 
+                player.id, position.x, position.y, transform.translation.x, transform.translation.y);
+        }
+    }
+}
+
+/// Component to mark the reset button
+#[derive(Component)]
+struct ResetButton;
+
+/// Set up UI elements
+fn setup_ui(mut commands: Commands) {
+    // Create a simple button
+    commands.spawn((
+        Button,
+        Node {
+            width: Val::Px(150.0),
+            height: Val::Px(50.0),
+            position_type: PositionType::Absolute,
+            left: Val::Px(10.0),
+            top: Val::Px(10.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
+        ResetButton,
+    ))
+    .with_children(|parent| {
+        parent.spawn((
+            Text::new("Reset (R/Enter)"),
+            TextFont {
+                font_size: 20.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.9, 0.9, 0.9)),
+        ));
+    });
+    
+    info!("🎮 UI setup complete - Press R/Enter or click button to reset AI players");
+}
+
+/// Handle button clicks and reset
+fn button_system(
+    mut interaction_query: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<ResetButton>),
+    >,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut connection: ResMut<ConnectionManager>,
+) {
+    let mut should_reset = false;
+    
+    for (interaction, mut color) in interaction_query.iter_mut() {
+        match *interaction {
+            Interaction::Pressed => {
+                *color = BackgroundColor(Color::srgb(0.35, 0.75, 0.35));
+                should_reset = true;
+            }
+            Interaction::Hovered => {
+                *color = BackgroundColor(Color::srgb(0.25, 0.25, 0.25));
+            }
+            Interaction::None => {
+                *color = BackgroundColor(Color::srgb(0.15, 0.15, 0.15));
+            }
+        }
+    }
+    
+    // Also allow R key or Enter to reset
+    if keyboard.just_pressed(KeyCode::KeyR) || keyboard.just_pressed(KeyCode::Enter) {
+        should_reset = true;
+    }
+    
+    if should_reset {
+        info!("🔄 Reset AI players requested - sending reset message to server");
+        
+        // Send reset message to server
+        let reset_message = ResetAIMessage;
+        info!("📤 CLIENT: About to send ResetAIMessage: {:?}", reset_message);
+        
+        match connection.send_message::<ReliableChannel, ResetAIMessage>(&reset_message) {
+            Ok(_) => {
+                info!("✅ CLIENT: Successfully sent ResetAIMessage");
+            }
+            Err(e) => {
+                info!("⚠️ CLIENT: Failed to send reset message: {:?}", e);
+            }
+        }
     }
 }

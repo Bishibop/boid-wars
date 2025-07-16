@@ -4,10 +4,11 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::{NetworkTarget, SharedConfig};
 use lightyear::server::message::ReceiveMessage;
 use std::net::SocketAddr;
-use tracing::{debug, info};
+use tracing::info;
 
-mod physics;
-use physics::*;
+pub mod physics;
+use physics::{PhysicsPlugin, Ship, WeaponStats, GameCollisionGroups, Projectile, AIPlayer};
+use bevy_rapier2d::prelude::{RigidBody, Collider, ExternalForce, ExternalImpulse};
 
 fn main() {
     info!("🚀 Boid Wars Server Starting...");
@@ -81,11 +82,13 @@ impl Plugin for BoidWarsServerPlugin {
         app.add_systems(Startup, setup_server);
 
         // Connection handling
-        app.add_systems(Update, (handle_connections, handle_player_input));
+        app.add_systems(Update, (handle_connections, handle_player_input, handle_reset_ai_message));
 
         // Add game systems
-        app.add_systems(Update, log_status);
+        app.add_systems(Update, (log_status, spawn_collision_objects_delayed, debug_player_components));
         app.add_systems(FixedUpdate, (move_players, move_boids, update_boid_ai));
+        
+        // Note: Physics systems (player_input_system, etc.) are added by PhysicsPlugin in FixedUpdate
     }
 }
 
@@ -116,14 +119,113 @@ fn setup_server(mut commands: Commands) {
 
     info!("🤖 Spawned initial boid with replication");
     
-    // Also spawn AI players for physics testing
-    spawn_ai_player(&mut commands, 100, Vec2::new(300.0, 0.0), AIType::Circler);
-    spawn_ai_player(&mut commands, 101, Vec2::new(-300.0, 0.0), AIType::Bouncer);
-    spawn_ai_player(&mut commands, 102, Vec2::new(0.0, 300.0), AIType::Shooter);
-    spawn_ai_player(&mut commands, 103, Vec2::new(0.0, -300.0), AIType::Chaser);
-    info!("🤖 Spawned 4 AI players for physics testing");
-    
     info!("🌐 Server ready for client connections");
+}
+
+// Spawn AI players when a human player connects
+fn spawn_collision_objects_delayed(
+    mut commands: Commands,
+    players: Query<&boid_wars_shared::Player>,
+    mut spawned: Local<bool>,
+) {
+    // Wait until at least one player is connected and we haven't spawned yet
+    if !players.is_empty() && !*spawned {
+        *spawned = true;
+        // Removed AI spawn log
+        
+        spawn_ai_players(&mut commands);
+        spawn_static_obstacles(&mut commands);
+    }
+}
+
+
+// Helper function to spawn AI players
+fn spawn_ai_players(commands: &mut Commands) {
+    let _game_config = &*GAME_CONFIG;
+    
+    // Spawn 3 AI players with different behaviors around the arena
+    let ai_spawns = [
+        (100.0, 100.0, physics::AIType::Circler),
+        (700.0, 100.0, physics::AIType::Bouncer), 
+        (400.0, 500.0, physics::AIType::Chaser),
+    ];
+    
+    for (i, (x, y, ai_type)) in ai_spawns.iter().enumerate() {
+        let ai_id = 1000 + i as u64; // Use high IDs to avoid conflicts
+        
+        physics::spawn_ai_player(commands, ai_id, Vec2::new(*x, *y), *ai_type);
+        
+        // Removed AI spawn log
+    }
+    
+    // Removed AI spawn complete log
+}
+
+// Helper function to spawn static obstacles
+fn spawn_static_obstacles(commands: &mut Commands) {
+    let _game_config = &*GAME_CONFIG;
+    let collision_groups = GameCollisionGroups::wall();
+    
+    // Create some obstacles scattered around the arena
+    let obstacles = [
+        (200.0, 200.0, 30.0, 30.0), // Square obstacle
+        (600.0, 150.0, 40.0, 20.0), // Rectangular obstacle  
+        (300.0, 400.0, 25.0, 25.0), // Small square
+        (500.0, 350.0, 35.0, 35.0), // Medium square
+        (150.0, 450.0, 50.0, 15.0), // Long rectangle
+    ];
+    
+    for (i, (x, y, width, height)) in obstacles.iter().enumerate() {
+        commands.spawn((
+            RigidBody::Fixed,
+            Collider::cuboid(width / 2.0, height / 2.0), // Rapier uses half-extents
+            Transform::from_xyz(*x, *y, 0.0),
+            GlobalTransform::default(),
+            collision_groups,
+            Name::new(format!("Obstacle {}", i + 1)),
+            // Add network components to make it visible to clients
+            boid_wars_shared::Position(Vec2::new(*x, *y)),
+            boid_wars_shared::Obstacle {
+                id: i as u32,
+                width: *width,
+                height: *height,
+            },
+            boid_wars_shared::Health::default(),
+            lightyear::prelude::server::Replicate::default(),
+        ));
+        
+        // Removed obstacle spawn log
+    }
+    
+    // Removed obstacle spawn complete log
+}
+
+// Handle reset message from client (respawn AI players and obstacles)
+fn handle_reset_ai_message(
+    mut commands: Commands,
+    mut reset_messages: EventReader<ReceiveMessage<ResetAIMessage>>,
+    ai_players: Query<Entity, With<AIPlayer>>,
+    obstacles: Query<Entity, With<Name>>,
+) {
+    for message in reset_messages.read() {
+        // Removed reset debug logs
+        
+        // Despawn all AI players
+        for entity in ai_players.iter() {
+            commands.entity(entity).despawn();
+        }
+        
+        // Despawn all obstacles (they have Name components)
+        for entity in obstacles.iter() {
+            commands.entity(entity).despawn();
+        }
+        
+        // Spawn new AI players and obstacles
+        spawn_ai_players(&mut commands);
+        spawn_static_obstacles(&mut commands);
+        
+        // Removed reset complete log
+    }
 }
 
 // Handle new client connections
@@ -132,7 +234,7 @@ fn handle_connections(mut commands: Commands, mut connections: EventReader<Conne
 
     for event in connections.read() {
         let client_id = event.client_id;
-        info!("🎮 Client {} connected!", client_id);
+        // Removed connection log
 
         // Spawn a player for the connected client with both networking and physics
         let player_entity = commands
@@ -143,21 +245,6 @@ fn handle_connections(mut commands: Commands, mut connections: EventReader<Conne
                     game_config.spawn_x,
                     game_config.spawn_y,
                 ),
-                // Add physics components
-                physics::Player {
-                    player_id: client_id.to_bits(),
-                    ..Default::default()
-                },
-                PlayerInput::default(),
-                Ship::default(),
-                WeaponStats::default(),
-                // Physics body
-                RigidBody::Dynamic,
-                Collider::cuboid(24.0, 32.0),
-                GameCollisionGroups::player(),
-                physics::Velocity::zero(),
-                ExternalForce::default(),
-                ExternalImpulse::default(),
                 // Networking
                 Replicate {
                     controlled_by: ControlledBy {
@@ -168,48 +255,86 @@ fn handle_connections(mut commands: Commands, mut connections: EventReader<Conne
                 },
             ))
             .id();
+        
+        // Add physics components separately to avoid tuple size limits
+        commands.entity(player_entity).insert((
+            physics::Player {
+                player_id: client_id.to_bits(),
+                ..Default::default()
+            },
+            physics::PlayerInput::default(),
+            Ship::default(),
+            WeaponStats::default(),
+        ));
+        
+        // Add physics body components
+        commands.entity(player_entity).insert((
+            RigidBody::Dynamic,
+            Collider::cuboid(5.0, 5.0), // Match 10x10 visual size
+            GameCollisionGroups::player(),
+            physics::Velocity::zero(),
+            ExternalForce::default(),
+            ExternalImpulse::default(),
+            Transform::from_xyz(game_config.spawn_x, game_config.spawn_y, 0.0), // Back to original spawn
+            GlobalTransform::default(),
+            bevy_rapier2d::dynamics::GravityScale(0.0), // Disable gravity for top-down space game
+            bevy_rapier2d::dynamics::Sleeping::disabled(),
+            bevy_rapier2d::dynamics::Damping {
+                linear_damping: 0.0,  // No damping for immediate response
+                angular_damping: 0.0,
+            },
+            bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(1.0),  // Light mass
+        ));
 
-        info!(
-            "✅ Spawned player entity {:?} for client {} with physics",
-            player_entity, client_id
-        );
+        // Removed spawn logs
     }
 }
 
-// Handle player input messages
+// Handle player input messages - update physics input properly
 fn handle_player_input(
-    mut message_events: EventReader<ReceiveMessage<PlayerInput>>,
-    mut players: Query<(&Player, &mut Velocity), With<Player>>,
+    mut message_events: EventReader<ReceiveMessage<boid_wars_shared::PlayerInput>>,
+    mut players: Query<(&boid_wars_shared::Player, &mut physics::PlayerInput), With<physics::Player>>,
 ) {
-    let game_config = &*GAME_CONFIG;
-
     for event in message_events.read() {
         let client_id = event.from;
         let input = &event.message;
+        
+        // Removed debug logs for cleaner output
 
-        // Find the player for this client
-        for (player, mut velocity) in players.iter_mut() {
+        let mut found_player = false;
+        // Find the player for this client and update their physics input
+        for (player, mut physics_input) in players.iter_mut() {
             if player.id == client_id.to_bits() {
-                // Apply movement input to velocity
-                velocity.0.x = input.movement.x * game_config.player_speed;
-                velocity.0.y = input.movement.y * game_config.player_speed;
+                found_player = true;
+                
+                // Store old values for comparison
+                let old_movement = physics_input.movement;
+                let old_thrust = physics_input.thrust;
+                
+                // Update physics input - this feeds into the physics input system
+                physics_input.movement = input.movement;
+                physics_input.aim_direction = input.aim;
+                physics_input.thrust = if input.movement.length() > 0.0 { 1.0 } else { 0.0 };
+                physics_input.shooting = input.fire;
 
-                if input.movement.length() > 0.0 {
-                    debug!("📍 Player {} moving: {:?}", player.id, input.movement);
-                }
+                // Removed debug logs
             }
         }
+        
+        // Removed debug logs
     }
 }
 
 fn log_status(
     time: Res<Time>,
     mut status_timer: ResMut<StatusTimer>,
-    players: Query<&Position, With<Player>>,
+    players: Query<&Position, With<boid_wars_shared::Player>>,
     boids: Query<&Position, With<Boid>>,
     physics_players: Query<&Transform, With<physics::Player>>,
     ai_players: Query<&Transform, With<AIPlayer>>,
     projectiles: Query<&Transform, With<Projectile>>,
+    all_entities: Query<Entity>,
+    all_physics_components: Query<Entity, With<physics::Player>>,
 ) {
     if status_timer.0.tick(time.delta()).just_finished() {
         let player_count = players.iter().len();
@@ -217,20 +342,24 @@ fn log_status(
         let physics_player_count = physics_players.iter().len();
         let ai_player_count = ai_players.iter().len();
         let projectile_count = projectiles.iter().len();
+        let total_entities = all_entities.iter().len();
+        let physics_component_count = all_physics_components.iter().len();
         
         info!(
-            "📊 Server - Uptime: {:.1}s | Network Players: {} | Boids: {} | Physics Players: {} | AI Players: {} | Projectiles: {}",
+            "📊 Server - Uptime: {:.1}s | Network Players: {} | Boids: {} | Physics Players: {} | AI Players: {} | Projectiles: {} | Total Entities: {} | Physics Components: {}",
             time.elapsed_secs(),
             player_count,
             boid_count,
             physics_player_count,
             ai_player_count,
-            projectile_count
+            projectile_count,
+            total_entities,
+            physics_component_count
         );
     }
 }
 
-fn move_players(time: Res<Time>, mut players: Query<(&mut Position, &Velocity), With<Player>>) {
+fn move_players(time: Res<Time>, mut players: Query<(&mut Position, &boid_wars_shared::Velocity), With<boid_wars_shared::Player>>) {
     let game_config = &*GAME_CONFIG;
     let delta = time.delta_secs();
 
@@ -246,7 +375,7 @@ fn move_players(time: Res<Time>, mut players: Query<(&mut Position, &Velocity), 
     }
 }
 
-fn move_boids(time: Res<Time>, mut boids: Query<(&mut Position, &Velocity), With<Boid>>) {
+fn move_boids(time: Res<Time>, mut boids: Query<(&mut Position, &boid_wars_shared::Velocity), With<Boid>>) {
     let game_config = &*GAME_CONFIG;
     let delta = time.delta_secs();
 
@@ -262,8 +391,8 @@ fn move_boids(time: Res<Time>, mut boids: Query<(&mut Position, &Velocity), With
 }
 
 fn update_boid_ai(
-    mut boids: Query<(&Position, &mut Velocity), With<Boid>>,
-    players: Query<&Position, (With<Player>, Without<Boid>)>,
+    mut boids: Query<(&Position, &mut boid_wars_shared::Velocity), With<Boid>>,
+    players: Query<&Position, (With<boid_wars_shared::Player>, Without<Boid>)>,
 ) {
     let game_config = &*GAME_CONFIG;
 
@@ -294,5 +423,43 @@ fn update_boid_ai(
 #[derive(Resource)]
 struct StatusTimer(Timer);
 
+
 #[derive(Resource, Default)]
 struct GameState;
+
+/// Debug system to check what components each player entity has
+fn debug_player_components(
+    all_players: Query<Entity, With<boid_wars_shared::Player>>,
+    transforms: Query<&Transform>,
+    physics_players: Query<&physics::Player>,
+    positions: Query<&boid_wars_shared::Position>,
+    velocities: Query<&boid_wars_shared::Velocity>,
+    physics_velocities: Query<&bevy_rapier2d::dynamics::Velocity>,
+    mut debug_timer: Local<f32>,
+    time: Res<Time>,
+) {
+    *debug_timer += time.delta_secs();
+    
+    if *debug_timer > 3.0 {
+        *debug_timer = 0.0;
+        
+        info!("🔍 COMPONENT DEBUG: Checking player entities...");
+        
+        for entity in all_players.iter() {
+            let has_transform = transforms.contains(entity);
+            let has_physics_player = physics_players.contains(entity);
+            let has_position = positions.contains(entity);
+            let has_velocity = velocities.contains(entity);
+            let has_physics_velocity = physics_velocities.contains(entity);
+            
+            info!("🔍 Entity {:?}: Transform={}, PhysicsPlayer={}, Position={}, Velocity={}, PhysicsVelocity={}", 
+                entity, has_transform, has_physics_player, has_position, has_velocity, has_physics_velocity);
+                
+            if has_transform && has_physics_player && has_position && has_velocity && has_physics_velocity {
+                info!("✅ Entity {:?} has ALL required components for sync!", entity);
+            } else {
+                info!("❌ Entity {:?} is MISSING components for sync!", entity);
+            }
+        }
+    }
+}

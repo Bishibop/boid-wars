@@ -3,11 +3,13 @@ use bevy_rapier2d::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use std::f32::consts::PI;
+use boid_wars_shared;
 
 // Re-export for convenience
 pub use bevy_rapier2d::prelude::{
     Collider, ExternalForce, ExternalImpulse,
     RapierPhysicsPlugin, RapierDebugRenderPlugin, RigidBody, Velocity,
+    RapierConfiguration,
 };
 
 /// Physics plugin that sets up Rapier2D and physics systems
@@ -16,7 +18,7 @@ pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app
-            // Add Rapier2D physics plugin
+            // Add Rapier2D physics plugin with no gravity for top-down space game
             .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
             .add_plugins(RapierDebugRenderPlugin::default())
             // Physics configuration is now handled by the plugin directly
@@ -25,12 +27,13 @@ impl Plugin for PhysicsPlugin {
             .add_systems(Startup, setup_arena)
             .add_systems(FixedUpdate, (
                 ai_player_system,
-                player_input_system,
+                player_input_system, // RESTORED - needed for proper physics
                 player_movement_system,
                 shooting_system,
                 projectile_system,
                 collision_system,
                 cleanup_system,
+                sync_physics_to_network,
             ).chain());
     }
 }
@@ -45,10 +48,11 @@ pub struct ArenaConfig {
 
 impl Default for ArenaConfig {
     fn default() -> Self {
+        let game_config = &*boid_wars_shared::GAME_CONFIG;
         Self {
-            width: 2500.0,
-            height: 1500.0,
-            wall_thickness: 50.0,
+            width: game_config.game_width,
+            height: game_config.game_height,
+            wall_thickness: 25.0,  // Scaled down proportionally
         }
     }
 }
@@ -72,6 +76,32 @@ impl Default for GameCollisionGroups {
     }
 }
 
+impl GameCollisionGroups {
+    pub fn player() -> bevy_rapier2d::geometry::CollisionGroups {
+        let groups = Self::default();
+        bevy_rapier2d::geometry::CollisionGroups::new(
+            groups.players,
+            groups.players | groups.projectiles | groups.walls  // Players now collide with other players
+        )
+    }
+    
+    pub fn projectile() -> bevy_rapier2d::geometry::CollisionGroups {
+        let groups = Self::default();
+        bevy_rapier2d::geometry::CollisionGroups::new(
+            groups.projectiles,
+            groups.players | groups.walls
+        )
+    }
+    
+    pub fn wall() -> bevy_rapier2d::geometry::CollisionGroups {
+        let groups = Self::default();
+        bevy_rapier2d::geometry::CollisionGroups::new(
+            groups.walls,
+            groups.players | groups.projectiles
+        )
+    }
+}
+
 /// Player component with physics and game stats
 #[derive(Component, Clone, Debug)]
 pub struct Player {
@@ -90,7 +120,7 @@ impl Default for Player {
             player_id: 0,
             health: 100.0,
             max_health: 100.0,
-            thrust_force: 500.0,
+            thrust_force: 50000.0,  // High thrust for responsive movement
             turn_rate: 5.0,
             forward_speed_multiplier: 1.5,
             weapon_cooldown: Timer::new(Duration::from_millis(250), TimerMode::Once),
@@ -151,7 +181,7 @@ impl Default for Ship {
     fn default() -> Self {
         Self {
             facing_direction: Vec2::Y,
-            max_speed: 300.0,
+            max_speed: 800.0,  // High max speed for responsive movement
             acceleration: 800.0,
             deceleration: 400.0,
             angular_velocity: 0.0,
@@ -212,7 +242,7 @@ impl Default for WeaponStats {
 pub struct ProjectilePool {
     available: Vec<Entity>,
     active: std::collections::HashSet<Entity>,
-    pool_size: usize,
+    _pool_size: usize,
 }
 
 impl Default for ProjectilePool {
@@ -220,7 +250,7 @@ impl Default for ProjectilePool {
         Self {
             available: Vec::with_capacity(500),
             active: std::collections::HashSet::with_capacity(500),
-            pool_size: 500,
+            _pool_size: 500,
         }
     }
 }
@@ -242,15 +272,15 @@ impl ProjectilePool {
     }
 }
 
-/// Setup the arena with walls
+/// Setup the arena with walls - using top-left origin like network coordinates
 fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
     let collision_groups = GameCollisionGroups::default();
     
-    // Top wall
+    // Top wall (y = 0)
     commands.spawn((
         RigidBody::Fixed,
         Collider::cuboid(arena_config.width / 2.0, arena_config.wall_thickness / 2.0),
-        Transform::from_xyz(0.0, arena_config.height / 2.0 + arena_config.wall_thickness / 2.0, 0.0),
+        Transform::from_xyz(arena_config.width / 2.0, -arena_config.wall_thickness / 2.0, 0.0),
         bevy_rapier2d::geometry::CollisionGroups::new(
             collision_groups.walls,
             Group::ALL
@@ -258,11 +288,11 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
         Name::new("Top Wall"),
     ));
     
-    // Bottom wall
+    // Bottom wall (y = height)
     commands.spawn((
         RigidBody::Fixed,
         Collider::cuboid(arena_config.width / 2.0, arena_config.wall_thickness / 2.0),
-        Transform::from_xyz(0.0, -arena_config.height / 2.0 - arena_config.wall_thickness / 2.0, 0.0),
+        Transform::from_xyz(arena_config.width / 2.0, arena_config.height + arena_config.wall_thickness / 2.0, 0.0),
         bevy_rapier2d::geometry::CollisionGroups::new(
             collision_groups.walls,
             Group::ALL
@@ -270,11 +300,11 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
         Name::new("Bottom Wall"),
     ));
     
-    // Left wall
+    // Left wall (x = 0)
     commands.spawn((
         RigidBody::Fixed,
         Collider::cuboid(arena_config.wall_thickness / 2.0, arena_config.height / 2.0),
-        Transform::from_xyz(-arena_config.width / 2.0 - arena_config.wall_thickness / 2.0, 0.0, 0.0),
+        Transform::from_xyz(-arena_config.wall_thickness / 2.0, arena_config.height / 2.0, 0.0),
         bevy_rapier2d::geometry::CollisionGroups::new(
             collision_groups.walls,
             Group::ALL
@@ -282,11 +312,11 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
         Name::new("Left Wall"),
     ));
     
-    // Right wall
+    // Right wall (x = width)
     commands.spawn((
         RigidBody::Fixed,
         Collider::cuboid(arena_config.wall_thickness / 2.0, arena_config.height / 2.0),
-        Transform::from_xyz(arena_config.width / 2.0 + arena_config.wall_thickness / 2.0, 0.0, 0.0),
+        Transform::from_xyz(arena_config.width + arena_config.wall_thickness / 2.0, arena_config.height / 2.0, 0.0),
         bevy_rapier2d::geometry::CollisionGroups::new(
             collision_groups.walls,
             Group::ALL
@@ -294,8 +324,9 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
         Name::new("Right Wall"),
     ));
     
-    info!("Arena setup complete: {}x{}", arena_config.width, arena_config.height);
+    // Removed arena setup log
 }
+
 
 /// AI system for automated testing
 fn ai_player_system(
@@ -312,41 +343,46 @@ fn ai_player_system(
         
         match ai.ai_type {
             AIType::Circler => {
-                // Move in circles around center
-                let center = Vec2::ZERO;
-                let radius = 200.0;
-                let speed = 1.0;
+                // Move in a circle around starting position
+                let circle_radius = 100.0;
+                let circle_speed = 1.0; // radians per second
                 
-                let angle = ai.behavior_timer * speed;
-                let target = center + Vec2::new(angle.cos(), angle.sin()) * radius;
+                let center_x = 100.0; // Starting position
+                let center_y = 100.0;
                 
-                input.movement = (target - pos).normalize_or_zero();
-                input.aim_direction = Vec2::new(1.0, 0.0); // Aim right
+                let angle = ai.behavior_timer * circle_speed;
+                let target_x = center_x + angle.cos() * circle_radius;
+                let target_y = center_y + angle.sin() * circle_radius;
+                
+                let direction = Vec2::new(target_x - pos.x, target_y - pos.y).normalize_or_zero();
+                
+                input.movement = direction;
+                input.aim_direction = direction;
                 input.thrust = 1.0;
+                input.shooting = false;
                 
-                // Shoot periodically
-                input.shooting = ai.shoot_timer > 0.5;
-                if input.shooting {
-                    ai.shoot_timer = 0.0;
-                }
+                // Removed AI debug logs
             }
             
             AIType::Bouncer => {
-                // Bounce around randomly
-                if ai.behavior_timer > 2.0 {
+                // Bounce around randomly within arena bounds
+                if ai.behavior_timer > 3.0 {
                     ai.behavior_timer = 0.0;
                     ai.target_position = Vec2::new(
-                        (rand::random::<f32>() - 0.5) * arena_config.width * 0.8,
-                        (rand::random::<f32>() - 0.5) * arena_config.height * 0.8,
+                        rand::random::<f32>() * arena_config.width * 0.8 + arena_config.width * 0.1,
+                        rand::random::<f32>() * arena_config.height * 0.8 + arena_config.height * 0.1,
                     );
                 }
                 
-                input.movement = (ai.target_position - pos).normalize_or_zero();
-                input.aim_direction = input.movement;
-                input.thrust = 0.8;
+                let direction = (ai.target_position - pos).normalize_or_zero();
+                input.movement = direction;
+                input.aim_direction = direction;
+                input.thrust = 1.0;
                 
-                // Shoot randomly
-                input.shooting = rand::random::<f32>() < 0.1;
+                // Shoot occasionally
+                input.shooting = rand::random::<f32>() < 0.05;
+                
+                // Removed AI debug logs
             }
             
             AIType::Shooter => {
@@ -399,30 +435,33 @@ fn ai_player_system(
     }
 }
 
-/// System to process player input and apply forces
+/// System to process player input and set velocity directly
 fn player_input_system(
-    mut player_query: Query<(&mut PlayerInput, &Player, &mut ExternalForce, &mut ExternalImpulse, &Transform)>,
+    mut player_query: Query<(&mut PlayerInput, &Player, &mut bevy_rapier2d::dynamics::Velocity, &Transform)>,
     time: Res<Time>,
+    mut debug_timer: Local<f32>,
 ) {
-    for (input, player, mut force, mut impulse, transform) in player_query.iter_mut() {
-        // Reset forces
-        force.force = Vec2::ZERO;
-        force.torque = 0.0;
+    *debug_timer += time.delta_secs();
+    
+    for (input, player, mut velocity, transform) in player_query.iter_mut() {
+        // Store old velocity for comparison
+        let old_velocity = velocity.linvel;
         
-        // Calculate thrust force
+        // Removed debug logs
+        
+        // Set velocity directly like the old network system did
         if input.thrust > 0.0 {
             let movement_direction = input.movement.normalize_or_zero();
-            let facing_direction = (transform.rotation * Vec3::Y).truncate();
+            let target_speed = 200.0; // pixels/second - similar to old system
             
-            // Forward speed boost when moving in facing direction
-            let forward_alignment = movement_direction.dot(facing_direction);
-            let speed_multiplier = if forward_alignment > 0.0 {
-                1.0 + (player.forward_speed_multiplier - 1.0) * forward_alignment
-            } else {
-                1.0
-            };
+            // Set velocity directly
+            velocity.linvel = movement_direction * target_speed;
             
-            force.force = movement_direction * player.thrust_force * input.thrust * speed_multiplier;
+            // Removed debug logs
+        } else {
+            // Stop when no input
+            velocity.linvel = Vec2::ZERO;
+            // Removed debug logs
         }
         
         // Handle rotation
@@ -431,8 +470,12 @@ fn player_input_system(
             let current_angle = transform.rotation.to_euler(EulerRot::ZYX).0;
             let angle_diff = (target_angle - current_angle + PI) % (2.0 * PI) - PI;
             
-            impulse.torque_impulse = angle_diff * player.turn_rate * time.delta_secs();
+            velocity.angvel = angle_diff * player.turn_rate;
         }
+    }
+    
+    if *debug_timer > 1.0 {
+        *debug_timer = 0.0;
     }
 }
 
@@ -443,7 +486,7 @@ fn player_movement_system(
 ) {
     for (_player, ship, mut velocity, _transform) in player_query.iter_mut() {
         // Apply damping for momentum feel
-        let damping_factor = 0.95; // Adjust for desired momentum feel
+        let damping_factor = 0.98; // Higher value = less damping = faster movement
         velocity.linvel *= damping_factor;
         velocity.angvel *= damping_factor;
         
@@ -589,7 +632,30 @@ pub fn spawn_player(
 ) -> Entity {
     let collision_groups = GameCollisionGroups::default();
     
-    commands.spawn((
+    // Spawn with minimal components first
+    let entity = commands.spawn((
+        RigidBody::Dynamic,
+        Collider::cuboid(4.0, 4.0), // Match 8x8 visual size
+        Transform::from_translation(spawn_position.extend(0.0)),
+        GlobalTransform::default(),
+    )).id();
+    
+    // Add physics properties
+    commands.entity(entity).insert((
+        Velocity::default(),
+        ExternalForce::default(),
+        ExternalImpulse::default(),
+        bevy_rapier2d::dynamics::Sleeping::disabled(),
+        Damping {
+            linear_damping: 2.0,
+            angular_damping: 5.0,
+        },
+        bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(10.0),
+        bevy_rapier2d::dynamics::GravityScale(0.0),
+    ));
+    
+    // Add game components
+    commands.entity(entity).insert((
         Player {
             player_id,
             ..Default::default()
@@ -597,24 +663,14 @@ pub fn spawn_player(
         PlayerInput::default(),
         Ship::default(),
         WeaponStats::default(),
-        // Rapier2D components
-        RigidBody::Dynamic,
-        Collider::cuboid(15.0, 25.0), // Rectangular ship collider
         bevy_rapier2d::geometry::CollisionGroups::new(
             collision_groups.players,
             collision_groups.projectiles | collision_groups.walls
         ),
-        Transform::from_translation(spawn_position.extend(0.0)),
-        GlobalTransform::default(),
-        Velocity::default(),
-        ExternalForce::default(),
-        ExternalImpulse::default(),
-        Damping {
-            linear_damping: 0.1,
-            angular_damping: 0.3,
-        },
         Name::new(format!("Player {}", player_id)),
-    )).id()
+    ));
+    
+    entity
 }
 
 /// Spawn an AI player for testing
@@ -626,7 +682,37 @@ pub fn spawn_ai_player(
 ) -> Entity {
     let collision_groups = GameCollisionGroups::default();
     
-    commands.spawn((
+    // Note: spawn_position is in physics coordinates (centered)
+    // The sync system will convert to network coordinates
+    // Spawn with minimal components first
+    let entity = commands.spawn((
+        // Core physics components
+        RigidBody::Dynamic,
+        Collider::cuboid(4.0, 4.0), // Match 8x8 visual size
+        Transform::from_translation(spawn_position.extend(0.0)),
+        GlobalTransform::default(),
+    )).id();
+    
+    // Add physics properties
+    commands.entity(entity).insert((
+        Velocity::default(),
+        ExternalForce::default(),
+        ExternalImpulse::default(),
+        bevy_rapier2d::dynamics::Sleeping::disabled(),
+    ));
+    
+    // Add game components
+    commands.entity(entity).insert((
+        // Networking components for replication
+        boid_wars_shared::Player {
+            id: player_id,
+            name: format!("AI {} ({:?})", player_id, ai_type),
+        },
+        boid_wars_shared::Position(bevy::math::Vec2::ZERO),
+        boid_wars_shared::Velocity(bevy::math::Vec2::ZERO),
+        boid_wars_shared::Rotation { angle: 0.0 },
+        boid_wars_shared::Health::default(),
+        // Physics components
         Player {
             player_id,
             ..Default::default()
@@ -638,22 +724,51 @@ pub fn spawn_ai_player(
             ai_type,
             ..Default::default()
         },
-        // Rapier2D components
-        RigidBody::Dynamic,
-        Collider::cuboid(15.0, 25.0), // Rectangular ship collider
+    ));
+    
+    // Add physics modifiers
+    commands.entity(entity).insert((
         bevy_rapier2d::geometry::CollisionGroups::new(
             collision_groups.players,
             collision_groups.projectiles | collision_groups.walls
         ),
-        Transform::from_translation(spawn_position.extend(0.0)),
-        GlobalTransform::default(),
-        Velocity::default(),
-        ExternalForce::default(),
-        ExternalImpulse::default(),
         Damping {
-            linear_damping: 0.1,
-            angular_damping: 0.3,
+            linear_damping: 0.5,  // Reduced damping to allow movement
+            angular_damping: 1.0,
         },
+        bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(10.0), // Set reasonable mass
+        bevy_rapier2d::dynamics::GravityScale(0.0),
+        lightyear::prelude::server::Replicate::default(),
         Name::new(format!("AI Player {} ({:?})", player_id, ai_type)),
-    )).id()
+    ));
+    
+    // Removed AI spawn log
+    
+    entity
+}
+
+/// Sync physics Transform positions to networked Position components - NO CONVERSION NEEDED!
+fn sync_physics_to_network(
+    mut query: Query<(&Transform, &mut boid_wars_shared::Position, &bevy_rapier2d::dynamics::Velocity, &mut boid_wars_shared::Velocity, &Player), With<Player>>,
+    time: Res<Time>,
+    mut debug_timer: Local<f32>,
+) {
+    *debug_timer += time.delta_secs();
+    
+    // Removed debug logs
+    
+    for (transform, mut position, physics_vel, mut net_vel, player) in query.iter_mut() {
+        // Direct copy - both systems use same coordinate system now!
+        let physics_pos = transform.translation.truncate();
+        position.0 = physics_pos;
+        
+        // Sync velocity from physics
+        net_vel.0 = physics_vel.linvel;
+        
+        // Removed debug logs
+    }
+    
+    if *debug_timer > 2.0 {
+        *debug_timer = 0.0;
+    }
 }
