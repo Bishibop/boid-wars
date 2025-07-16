@@ -1,5 +1,6 @@
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
+use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
 // Re-export Vec2 for use in other crates
@@ -21,17 +22,6 @@ pub struct Position(pub Vec2);
 impl Position {
     pub fn new(x: f32, y: f32) -> Self {
         Self(Vec2::new(x, y))
-    }
-}
-
-// Access x and y directly
-impl Position {
-    pub fn x(&self) -> f32 {
-        self.0.x
-    }
-
-    pub fn y(&self) -> f32 {
-        self.0.y
     }
 }
 
@@ -57,17 +47,6 @@ impl Velocity {
     }
 }
 
-// Access x and y directly
-impl Velocity {
-    pub fn x(&self) -> f32 {
-        self.0.x
-    }
-
-    pub fn y(&self) -> f32 {
-        self.0.y
-    }
-}
-
 /// Health component
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Health {
@@ -78,8 +57,8 @@ pub struct Health {
 impl Default for Health {
     fn default() -> Self {
         Self {
-            current: 100.0,
-            max: 100.0,
+            current: DEFAULT_HEALTH,
+            max: DEFAULT_HEALTH,
         }
     }
 }
@@ -154,11 +133,11 @@ impl BoidBundle {
     }
 }
 
-// Channels
-#[derive(Debug)]
+// Channels - use derive macro for Lightyear 0.20
+#[derive(Debug, Channel)]
 pub struct UnreliableChannel;
 
-#[derive(Debug)]
+#[derive(Debug, Channel)]
 pub struct ReliableChannel;
 
 // Protocol Plugin
@@ -170,9 +149,36 @@ impl Plugin for ProtocolPlugin {
         // Register types with Bevy
         app.register_type::<PlayerInput>();
 
-        // For now, just register the basic plugin structure
-        // Component registration will be handled by a separate function
-        println!("📋 Protocol plugin built successfully");
+        // Register components for replication using correct Lightyear 0.20 API
+        // Only register basic replication for now - no interpolation to avoid missing function errors
+        app.register_component::<Position>(ChannelDirection::Bidirectional);
+        app.register_component::<Rotation>(ChannelDirection::Bidirectional);
+        app.register_component::<Velocity>(ChannelDirection::Bidirectional);
+        app.register_component::<Health>(ChannelDirection::ServerToClient);
+        app.register_component::<Player>(ChannelDirection::ServerToClient);
+        app.register_component::<Boid>(ChannelDirection::ServerToClient);
+
+        // Register input using correct Lightyear 0.20 API
+        app.add_plugins(InputPlugin::<PlayerInput>::default());
+
+        // Register PlayerInput as message
+        app.register_message::<PlayerInput>(ChannelDirection::ClientToServer);
+
+        // Register channels using correct Lightyear 0.20 API
+        app.add_channel::<UnreliableChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliableWithAcks,
+            ..default()
+        });
+
+        app.add_channel::<ReliableChannel>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        });
+
+        // AuthorityChange is automatically registered by Lightyear's SharedPlugin
+        // No manual registration needed in Lightyear 0.20
+
+        // Protocol plugin built successfully
     }
 }
 
@@ -181,3 +187,4 @@ pub const PLAYER_SPEED: f32 = 200.0;
 pub const BOID_SPEED: f32 = 150.0;
 pub const GAME_WIDTH: f32 = 800.0;
 pub const GAME_HEIGHT: f32 = 600.0;
+pub const DEFAULT_HEALTH: f32 = 100.0;

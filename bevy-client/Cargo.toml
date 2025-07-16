@@ -1,0 +1,40 @@
+[package]
+name = "boid-wars-bevy-client"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Ultra minimal Bevy for WASM - test bundle size
+bevy = { version = "0.16", default-features = false, features = [
+    "bevy_winit",
+    "bevy_render", 
+    "bevy_sprite",
+    "webgl2"
+] }
+
+# Lightyear networking (0.20 for compatibility with server)
+lightyear = { version = "0.20", features = ["webtransport"] }
+
+# Shared types
+boid-wars-shared = { path = "../shared" }
+
+# WASM bindings
+wasm-bindgen = "0.2"
+web-sys = "0.3"
+console_error_panic_hook = "0.1"
+
+# Additional utilities
+serde = { version = "1.0", features = ["derive"] }
+tracing = "0.1"
+
+[dependencies.getrandom]
+version = "0.2"
+features = ["js"]
+
+# WASM optimization
+[package.metadata.wasm-pack.profile.release]
+# More aggressive wasm-opt optimizations
+wasm-opt = ["-Oz", "--enable-mutable-globals", "--strip-debug", "--strip-producers"]

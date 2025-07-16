@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🏗️  Building WASM module..."
+echo "🏗️  Building WASM module (debug mode)..."
 
 # Change to project root
 cd "$(dirname "$0")/.."
@@ -26,10 +26,18 @@ cd lightyear-wasm
 # Only clean output directory, preserve Rust target cache for incremental builds
 rm -rf pkg
 
-# Build the WASM module
-echo "🔨 Building with wasm-pack..."
-# Use specific features that work with WASM
-wasm-pack build --target web --out-dir ../client/src/wasm
+# Build the WASM module in debug mode (faster compilation)
+echo "🔨 Building with wasm-pack (debug mode)..."
 
-echo "✅ WASM module built successfully"
+# Check if we can use incremental compilation cache
+if [ -d "target/wasm32-unknown-unknown" ]; then
+    echo "📦 Using incremental compilation cache"
+else
+    echo "🆕 First build - creating incremental cache"
+fi
+
+# Use debug profile for faster builds during development
+wasm-pack build --target web --out-dir ../client/src/wasm --dev
+
+echo "✅ WASM module built successfully (debug)"
 echo "📁 Output: client/src/wasm/"

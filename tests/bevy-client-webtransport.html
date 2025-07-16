@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebTransport Test</title>
+</head>
+<body>
+    <h1>WebTransport Connection Test</h1>
+    <div id="status">Initializing...</div>
+    <pre id="log"></pre>
+
+    <script>
+        const log = (msg) => {
+            console.log(msg);
+            document.getElementById('log').textContent += msg + '\n';
+        };
+
+        const updateStatus = (status) => {
+            document.getElementById('status').textContent = status;
+        };
+
+        async function testWebTransport() {
+            try {
+                updateStatus('Creating WebTransport connection...');
+                
+                // Certificate hash from our generated certificate
+                const certHash = 'a3177e95d86a6fb34bded6f750fe9c3207ecc95ce88ff485cea6e58ee3b3a82e';
+                
+                // Convert hex string to Uint8Array
+                const hashBytes = new Uint8Array(certHash.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+                
+                log(`Certificate hash: ${certHash}`);
+                log(`Hash bytes: ${Array.from(hashBytes).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+                
+                const transport = new WebTransport('https://127.0.0.1:5000', {
+                    serverCertificateHashes: [{
+                        algorithm: 'sha-256',
+                        value: hashBytes
+                    }]
+                });
+                
+                log('WebTransport created, waiting for ready...');
+                await transport.ready;
+                
+                updateStatus('✅ Connected!');
+                log('Successfully connected to WebTransport server!');
+                
+                // Test sending data
+                const stream = await transport.createBidirectionalStream();
+                const writer = stream.writable.getWriter();
+                const encoder = new TextEncoder();
+                await writer.write(encoder.encode('Hello from browser!'));
+                
+                log('Sent test message');
+                
+            } catch (error) {
+                updateStatus('❌ Connection failed');
+                log(`Error: ${error.message}`);
+                log(`Error details: ${JSON.stringify(error)}`);
+                console.error('WebTransport error:', error);
+            }
+        }
+        
+        // Check if WebTransport is supported
+        if (typeof WebTransport !== 'undefined') {
+            log('WebTransport is supported in this browser');
+            testWebTransport();
+        } else {
+            updateStatus('❌ WebTransport not supported');
+            log('WebTransport is not supported in this browser');
+        }
+    </script>
+</body>
+</html>

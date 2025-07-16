@@ -14,17 +14,17 @@ Boid Wars is a competitive space shooter where players battle against thousands 
 
 ## Tech Stack
 
-- **Server**: Rust + Bevy ECS + Lightyear (WebTransport networking)
-- **Client**: TypeScript + Pixi.js (WebGL rendering)
-- **Protocol**: WebTransport for low-latency communication
-- **Bridge**: Minimal WASM module for networking
+- **Server**: Rust + Bevy ECS + Lightyear 0.20 (WebTransport/WebSocket)
+- **Client**: Rust + Bevy ECS (WASM build)
+- **Protocol**: WebTransport (production) / WebSocket (development)
+- **Architecture**: Unified Rust codebase for maximum performance
 
 ## Prerequisites
 
 - [Rust](https://rustup.rs/) (stable toolchain)
-- [Node.js](https://nodejs.org/) v20+
 - [wasm-pack](https://rustwasm.github.io/wasm-pack/)
-- [mkcert](https://github.com/FiloSottile/mkcert) (for local HTTPS)
+- [trunk](https://trunkrs.dev/) (for serving WASM client)
+- Modern browser with WebAssembly support
 
 ## Quick Start
 
@@ -47,10 +47,9 @@ Boid Wars is a competitive space shooter where players battle against thousands 
    ```
    
    This will:
-   - Create your `.env` file
-   - Generate SSL certificates in a secure location
-   - Install all dependencies
-   - Build the WASM bridge
+   - Install Rust dependencies
+   - Build the WASM client
+   - Set up development environment
 
 4. **Start development**
    ```bash
@@ -60,7 +59,7 @@ Boid Wars is a competitive space shooter where players battle against thousands 
    This runs both server and client with hot reloading.
 
 5. **Open the game**
-   Navigate to https://localhost:5173 in Chrome, Edge, or Firefox
+   Navigate to http://localhost:8080 in Chrome, Edge, or Firefox
 
 ## Development
 
@@ -68,47 +67,45 @@ Boid Wars is a competitive space shooter where players battle against thousands 
 ```
 boid_wars/
 ├── server/          # Rust game server
-├── client/          # TypeScript web client
-├── lightyear-wasm/  # WASM networking bridge
+├── bevy-client/     # Bevy WASM client
 ├── shared/          # Shared protocol types
 ├── scripts/         # Development scripts
 └── docs/            # Documentation
+
+# Legacy (archived):
+├── client/          # Original TypeScript client
+└── lightyear-wasm/  # Attempted WASM bridge
 ```
 
 ### Useful Commands
 
 ```bash
-# Development (hot reload)
-make dev              # Run everything concurrently
-./scripts/run-server.sh   # Just the server
-cd client && npm run dev  # Just the client
+# Development
+make dev              # Run server and client concurrently
+make dev-server       # Just the server
+make dev-client       # Just the client
 
-# Testing
+# Testing & Quality
+make check            # Run all formatting, linting, and tests
 cargo test --all      # Rust tests
-cd client && npm test # Client tests
-
-# Code Quality
 cargo fmt --all       # Format Rust code
 cargo clippy --all    # Lint Rust code
-cd client && npm run lint     # Lint TypeScript
-cd client && npm run format   # Format TypeScript
 
 # Building
-cargo build --release # Production server
-cd client && npm run build    # Production client
+make build            # Build everything for production
+make build-wasm       # Build WASM client only
+cargo build --release # Build server only
 ```
 
 ### Performance Monitoring
 
-The client includes built-in performance monitoring in development mode:
-- FPS counter (top-right)
-- Entity count
-- Network latency
+The Bevy client includes built-in diagnostics:
+- FPS counter overlay
+- Entity count display
+- Network statistics
+- Frame time graphs
 
-Access debug tools in the browser console:
-- `window.logger` - Logging utilities
-- `window.perfMonitor` - Performance stats
-- `window.pixiApp` - Pixi.js application
+Enable diagnostics with the `--features debug` flag during development.
 
 ## Architecture
 
@@ -117,7 +114,7 @@ Access debug tools in the browser console:
 - **Interest Management**: Only relevant entities sent to each client
 - **Delta Compression**: Minimal bandwidth usage
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for system design and [docs/](docs/) for additional documentation.
+See [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) for system design and [docs/](docs/) for additional documentation.
 
 ## Browser Support
 
@@ -142,4 +139,9 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Status
 
-🚧 **Early Development** - This project is in active development. Expect breaking changes.
+🚧 **Architecture Migration** - Currently migrating from TypeScript/Pixi.js to full Bevy WASM client. Core gameplay in active development.
+
+### Recent Changes
+- Migrated to Lightyear 0.20 for better WASM support
+- Switched to full Bevy WASM client for unified architecture
+- Implemented WebSocket fallback for local development
