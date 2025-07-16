@@ -6,6 +6,9 @@ use lightyear::server::message::ReceiveMessage;
 use std::net::SocketAddr;
 use tracing::{debug, info};
 
+mod physics;
+use physics::*;
+
 fn main() {
     info!("🚀 Boid Wars Server Starting...");
 
@@ -33,6 +36,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(ServerPlugins::new(lightyear_config))
         .add_plugins(ProtocolPlugin)
+        .add_plugins(PhysicsPlugin)
         .add_plugins(BoidWarsServerPlugin)
         .run();
 }
@@ -111,6 +115,14 @@ fn setup_server(mut commands: Commands) {
     ));
 
     info!("🤖 Spawned initial boid with replication");
+    
+    // Also spawn AI players for physics testing
+    spawn_ai_player(&mut commands, 100, Vec2::new(300.0, 0.0), AIType::Circler);
+    spawn_ai_player(&mut commands, 101, Vec2::new(-300.0, 0.0), AIType::Bouncer);
+    spawn_ai_player(&mut commands, 102, Vec2::new(0.0, 300.0), AIType::Shooter);
+    spawn_ai_player(&mut commands, 103, Vec2::new(0.0, -300.0), AIType::Chaser);
+    info!("🤖 Spawned 4 AI players for physics testing");
+    
     info!("🌐 Server ready for client connections");
 }
 
@@ -122,7 +134,7 @@ fn handle_connections(mut commands: Commands, mut connections: EventReader<Conne
         let client_id = event.client_id;
         info!("🎮 Client {} connected!", client_id);
 
-        // Spawn a player for the connected client
+        // Spawn a player for the connected client with both networking and physics
         let player_entity = commands
             .spawn((
                 PlayerBundle::new(
@@ -131,8 +143,23 @@ fn handle_connections(mut commands: Commands, mut connections: EventReader<Conne
                     game_config.spawn_x,
                     game_config.spawn_y,
                 ),
+                // Add physics components
+                physics::Player {
+                    player_id: client_id.to_bits(),
+                    ..Default::default()
+                },
+                PlayerInput::default(),
+                Ship::default(),
+                WeaponStats::default(),
+                // Physics body
+                RigidBody::Dynamic,
+                Collider::cuboid(24.0, 32.0),
+                GameCollisionGroups::player(),
+                physics::Velocity::zero(),
+                ExternalForce::default(),
+                ExternalImpulse::default(),
+                // Networking
                 Replicate {
-                    // Player is controlled by the connected client
                     controlled_by: ControlledBy {
                         target: NetworkTarget::Single(client_id),
                         ..default()
@@ -143,7 +170,7 @@ fn handle_connections(mut commands: Commands, mut connections: EventReader<Conne
             .id();
 
         info!(
-            "✅ Spawned player entity {:?} for client {}",
+            "✅ Spawned player entity {:?} for client {} with physics",
             player_entity, client_id
         );
     }
@@ -180,15 +207,25 @@ fn log_status(
     mut status_timer: ResMut<StatusTimer>,
     players: Query<&Position, With<Player>>,
     boids: Query<&Position, With<Boid>>,
+    physics_players: Query<&Transform, With<physics::Player>>,
+    ai_players: Query<&Transform, With<AIPlayer>>,
+    projectiles: Query<&Transform, With<Projectile>>,
 ) {
     if status_timer.0.tick(time.delta()).just_finished() {
         let player_count = players.iter().len();
         let boid_count = boids.iter().len();
+        let physics_player_count = physics_players.iter().len();
+        let ai_player_count = ai_players.iter().len();
+        let projectile_count = projectiles.iter().len();
+        
         info!(
-            "📊 Server running - Uptime: {:.1}s | Players: {} | Boids: {}",
+            "📊 Server - Uptime: {:.1}s | Network Players: {} | Boids: {} | Physics Players: {} | AI Players: {} | Projectiles: {}",
             time.elapsed_secs(),
             player_count,
-            boid_count
+            boid_count,
+            physics_player_count,
+            ai_player_count,
+            projectile_count
         );
     }
 }

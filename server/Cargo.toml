@@ -12,6 +12,15 @@ bevy = { workspace = true }
 lightyear = { workspace = true }
 serde = { workspace = true }
 
+# Physics
+bevy_rapier2d = "0.30"
+
+# Spatial
+rstar = "0.12"
+
+# Random
+rand = "0.8"
+
 # Logging
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
