@@ -47,6 +47,14 @@ pub struct Obstacle {
     pub height: f32,
 }
 
+/// Projectile component for network replication
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Projectile {
+    pub id: u32,
+    pub damage: f32,
+    pub owner_id: u64,
+}
+
 /// Velocity component for movement
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
 pub struct Velocity(pub Vec2);
@@ -187,6 +195,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Player>(ChannelDirection::ServerToClient);
         app.register_component::<Boid>(ChannelDirection::ServerToClient);
         app.register_component::<Obstacle>(ChannelDirection::ServerToClient);
+        app.register_component::<Projectile>(ChannelDirection::ServerToClient);
 
         // Register PlayerInput as message (not input plugin)
         app.register_message::<PlayerInput>(ChannelDirection::ClientToServer);

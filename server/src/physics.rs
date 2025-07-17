@@ -25,15 +25,16 @@ impl Plugin for PhysicsPlugin {
             .init_resource::<ArenaConfig>()
             .init_resource::<ProjectilePool>()
             .add_systems(Startup, setup_arena)
+            .add_systems(Update, shooting_system) // Move to Update for responsive input
             .add_systems(FixedUpdate, (
                 ai_player_system,
                 player_input_system, // RESTORED - needed for proper physics
                 player_movement_system,
-                shooting_system,
                 projectile_system,
                 collision_system,
                 cleanup_system,
                 sync_physics_to_network,
+                sync_projectile_physics_to_network,
             ).chain());
     }
 }
@@ -123,7 +124,7 @@ impl Default for Player {
             thrust_force: 50000.0,  // High thrust for responsive movement
             turn_rate: 5.0,
             forward_speed_multiplier: 1.5,
-            weapon_cooldown: Timer::new(Duration::from_millis(250), TimerMode::Once),
+            weapon_cooldown: Timer::new(Duration::from_millis(100), TimerMode::Once),
         }
     }
 }
@@ -500,13 +501,22 @@ fn player_movement_system(
 /// System to handle shooting
 fn shooting_system(
     mut commands: Commands,
-    mut player_query: Query<(&PlayerInput, &mut Player, &WeaponStats, &Transform)>,
+    mut player_query: Query<(Entity, &PlayerInput, &mut Player, &WeaponStats, &Transform)>,
     time: Res<Time>,
 ) {
-    for (input, mut player, weapon, transform) in player_query.iter_mut() {
+    // Debug: Log all players and their input state
+    let player_count = player_query.iter().count();
+    info!("🔍 SHOOTING: Processing {} players", player_count);
+    
+    for (entity, input, mut player, weapon, transform) in player_query.iter_mut() {
         player.weapon_cooldown.tick(time.delta());
         
+        // Debug each player's state
+        info!("🔍 Player {} - shooting={} cooldown_finished={}", 
+            player.player_id, input.shooting, player.weapon_cooldown.finished());
+        
         if input.shooting && player.weapon_cooldown.finished() {
+            info!("🚀 PHYSICS: Player {} shooting! Spawning projectile", player.player_id);
             // Reset cooldown
             player.weapon_cooldown.reset();
             
@@ -515,12 +525,17 @@ fn shooting_system(
                 (transform.rotation * Vec3::Y).truncate() * 30.0; // Offset from ship center
             
             let projectile_velocity = input.aim_direction * weapon.projectile_speed;
+            
+            // Debug velocity calculation
+            info!("🎯 PHYSICS: Player {} aim_direction=({:.1}, {:.1}) projectile_speed={:.1}", 
+                player.player_id, input.aim_direction.x, input.aim_direction.y, weapon.projectile_speed);
             let collision_groups = GameCollisionGroups::default();
             
-            commands.spawn((
+            let projectile_entity = commands.spawn((
+                // Physics projectile component (server-only)
                 Projectile {
                     damage: weapon.damage,
-                    owner: Entity::PLACEHOLDER, // TODO: Get actual player entity
+                    owner: entity, // Use actual player entity
                     projectile_type: ProjectileType::Basic,
                     lifetime: Timer::new(weapon.projectile_lifetime, TimerMode::Once),
                     speed: weapon.projectile_speed,
@@ -541,7 +556,25 @@ fn shooting_system(
                 Transform::from_translation(projectile_spawn_pos.extend(0.0)),
                 GlobalTransform::default(),
                 Name::new("Projectile"),
+            )).id();
+            
+            // Add network components for client replication
+            commands.entity(projectile_entity).insert((
+                // Network components for replication
+                boid_wars_shared::Projectile {
+                    id: projectile_entity.index(), // Use entity index as ID
+                    damage: weapon.damage,
+                    owner_id: player.player_id,
+                },
+                boid_wars_shared::Position(projectile_spawn_pos),
+                boid_wars_shared::Velocity(projectile_velocity),
+                lightyear::prelude::server::Replicate::default(),
             ));
+            
+            info!("✅ PHYSICS: Projectile spawned at ({:.1}, {:.1}) with velocity ({:.1}, {:.1})", 
+                projectile_spawn_pos.x, projectile_spawn_pos.y,
+                projectile_velocity.x, projectile_velocity.y
+            );
         }
     }
 }
@@ -770,5 +803,18 @@ fn sync_physics_to_network(
     
     if *debug_timer > 2.0 {
         *debug_timer = 0.0;
+    }
+}
+
+/// Sync projectile physics positions to networked Position components
+fn sync_projectile_physics_to_network(
+    mut projectiles: Query<(&Transform, &mut boid_wars_shared::Position, &bevy_rapier2d::dynamics::Velocity, &mut boid_wars_shared::Velocity), (With<Projectile>, With<boid_wars_shared::Projectile>)>,
+) {
+    for (transform, mut position, physics_vel, mut net_vel) in projectiles.iter_mut() {
+        // Sync position from physics to network
+        position.0 = transform.translation.truncate();
+        
+        // Sync velocity from physics to network  
+        net_vel.0 = physics_vel.linvel;
     }
 }

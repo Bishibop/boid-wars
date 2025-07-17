@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use tracing::info;
 
 pub mod physics;
-use physics::{PhysicsPlugin, Ship, WeaponStats, GameCollisionGroups, Projectile, AIPlayer};
+use physics::{PhysicsPlugin, Ship, WeaponStats, GameCollisionGroups, Projectile};
 use bevy_rapier2d::prelude::{RigidBody, Collider, ExternalForce, ExternalImpulse};
 
 fn main() {
@@ -85,7 +85,7 @@ impl Plugin for BoidWarsServerPlugin {
         app.add_systems(Update, (handle_connections, handle_player_input, handle_reset_ai_message));
 
         // Add game systems
-        app.add_systems(Update, (log_status, spawn_collision_objects_delayed, debug_player_components));
+        app.add_systems(Update, (log_status, spawn_collision_objects_delayed));
         app.add_systems(FixedUpdate, (move_players, move_boids, update_boid_ai));
         
         // Note: Physics systems (player_input_system, etc.) are added by PhysicsPlugin in FixedUpdate
@@ -131,34 +131,31 @@ fn spawn_collision_objects_delayed(
     // Wait until at least one player is connected and we haven't spawned yet
     if !players.is_empty() && !*spawned {
         *spawned = true;
-        // Removed AI spawn log
+        // Spawn peaceful boids instead of AI players
         
-        spawn_ai_players(&mut commands);
+        spawn_boid_flock(&mut commands);
         spawn_static_obstacles(&mut commands);
     }
 }
 
 
-// Helper function to spawn AI players
-fn spawn_ai_players(commands: &mut Commands) {
-    let _game_config = &*GAME_CONFIG;
+// Helper function to spawn peaceful boids
+fn spawn_boid_flock(commands: &mut Commands) {
+    let game_config = &*GAME_CONFIG;
     
-    // Spawn 3 AI players with different behaviors around the arena
-    let ai_spawns = [
-        (100.0, 100.0, physics::AIType::Circler),
-        (700.0, 100.0, physics::AIType::Bouncer), 
-        (400.0, 500.0, physics::AIType::Chaser),
-    ];
-    
-    for (i, (x, y, ai_type)) in ai_spawns.iter().enumerate() {
-        let ai_id = 1000 + i as u64; // Use high IDs to avoid conflicts
+    // Spawn 8 boids scattered around the arena
+    for i in 0..8 {
+        let boid_id = 100 + i; // Use IDs 100-107
         
-        physics::spawn_ai_player(commands, ai_id, Vec2::new(*x, *y), *ai_type);
+        // Scatter them around the arena
+        let x = (i as f32 * 100.0) % game_config.game_width;
+        let y = (i as f32 * 80.0) % game_config.game_height;
         
-        // Removed AI spawn log
+        commands.spawn((
+            BoidBundle::new(boid_id, x, y),
+            Replicate::default(),
+        ));
     }
-    
-    // Removed AI spawn complete log
 }
 
 // Helper function to spawn static obstacles
@@ -204,14 +201,14 @@ fn spawn_static_obstacles(commands: &mut Commands) {
 fn handle_reset_ai_message(
     mut commands: Commands,
     mut reset_messages: EventReader<ReceiveMessage<ResetAIMessage>>,
-    ai_players: Query<Entity, With<AIPlayer>>,
+    boids: Query<Entity, With<Boid>>,
     obstacles: Query<Entity, With<Name>>,
 ) {
     for message in reset_messages.read() {
         // Removed reset debug logs
         
-        // Despawn all AI players
-        for entity in ai_players.iter() {
+        // Despawn all boids
+        for entity in boids.iter() {
             commands.entity(entity).despawn();
         }
         
@@ -220,8 +217,8 @@ fn handle_reset_ai_message(
             commands.entity(entity).despawn();
         }
         
-        // Spawn new AI players and obstacles
-        spawn_ai_players(&mut commands);
+        // Spawn new boids and obstacles
+        spawn_boid_flock(&mut commands);
         spawn_static_obstacles(&mut commands);
         
         // Removed reset complete log
@@ -317,7 +314,7 @@ fn handle_player_input(
                 physics_input.thrust = if input.movement.length() > 0.0 { 1.0 } else { 0.0 };
                 physics_input.shooting = input.fire;
 
-                // Removed debug logs
+                // Removed fire input spam logging
             }
         }
         
@@ -331,7 +328,6 @@ fn log_status(
     players: Query<&Position, With<boid_wars_shared::Player>>,
     boids: Query<&Position, With<Boid>>,
     physics_players: Query<&Transform, With<physics::Player>>,
-    ai_players: Query<&Transform, With<AIPlayer>>,
     projectiles: Query<&Transform, With<Projectile>>,
     all_entities: Query<Entity>,
     all_physics_components: Query<Entity, With<physics::Player>>,
@@ -340,18 +336,16 @@ fn log_status(
         let player_count = players.iter().len();
         let boid_count = boids.iter().len();
         let physics_player_count = physics_players.iter().len();
-        let ai_player_count = ai_players.iter().len();
         let projectile_count = projectiles.iter().len();
         let total_entities = all_entities.iter().len();
         let physics_component_count = all_physics_components.iter().len();
         
         info!(
-            "📊 Server - Uptime: {:.1}s | Network Players: {} | Boids: {} | Physics Players: {} | AI Players: {} | Projectiles: {} | Total Entities: {} | Physics Components: {}",
+            "📊 Server - Uptime: {:.1}s | Network Players: {} | Boids: {} | Physics Players: {} | Projectiles: {} | Total Entities: {} | Physics Components: {}",
             time.elapsed_secs(),
             player_count,
             boid_count,
             physics_player_count,
-            ai_player_count,
             projectile_count,
             total_entities,
             physics_component_count
@@ -391,32 +385,110 @@ fn move_boids(time: Res<Time>, mut boids: Query<(&mut Position, &boid_wars_share
 }
 
 fn update_boid_ai(
-    mut boids: Query<(&Position, &mut boid_wars_shared::Velocity), With<Boid>>,
-    players: Query<&Position, (With<boid_wars_shared::Player>, Without<Boid>)>,
+    mut boids: Query<(Entity, &Position, &mut boid_wars_shared::Velocity), With<Boid>>,
+    _players: Query<&Position, (With<boid_wars_shared::Player>, Without<Boid>)>,
 ) {
     let game_config = &*GAME_CONFIG;
-
-    for (boid_pos, mut boid_vel) in boids.iter_mut() {
-        // Find nearest player
-        let nearest_player = players.iter().min_by(|a, b| {
-            let dist_a = (a.0.x - boid_pos.0.x).powi(2) + (a.0.y - boid_pos.0.y).powi(2);
-            let dist_b = (b.0.x - boid_pos.0.x).powi(2) + (b.0.y - boid_pos.0.y).powi(2);
-            dist_a
-                .partial_cmp(&dist_b)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        if let Some(player_pos) = nearest_player {
-            // Move towards nearest player
-            let dx = player_pos.0.x - boid_pos.0.x;
-            let dy = player_pos.0.y - boid_pos.0.y;
-            let distance = (dx * dx + dy * dy).sqrt();
-
-            if distance > 0.0 {
-                boid_vel.0.x = (dx / distance) * game_config.boid_speed;
-                boid_vel.0.y = (dy / distance) * game_config.boid_speed;
+    let max_speed = game_config.boid_speed * 0.4; // Slower, more peaceful movement
+    
+    // Collect all boid data for flocking calculations
+    let boid_data: Vec<(Entity, Vec2, Vec2)> = boids.iter()
+        .map(|(entity, pos, vel)| (entity, pos.0, vel.0))
+        .collect();
+    
+    for (entity, boid_pos, mut boid_vel) in boids.iter_mut() {
+        let mut separation = Vec2::ZERO;
+        let mut alignment = Vec2::ZERO;
+        let mut cohesion = Vec2::ZERO;
+        let mut neighbor_count = 0;
+        
+        // Flocking parameters
+        let separation_radius = 50.0;
+        let alignment_radius = 80.0;
+        let cohesion_radius = 100.0;
+        
+        for (other_entity, other_pos, other_vel) in &boid_data {
+            if *other_entity == entity { continue; } // Skip self
+            
+            let diff = boid_pos.0 - *other_pos;
+            let distance = diff.length();
+            
+            // Separation: avoid crowding neighbors
+            if distance > 0.0 && distance < separation_radius {
+                let normalized_diff = diff / distance;
+                separation += normalized_diff / distance; // Stronger when closer
+            }
+            
+            // Alignment and Cohesion: only with nearby neighbors
+            if distance < alignment_radius {
+                neighbor_count += 1;
+                
+                // Alignment: steer towards average heading of neighbors
+                alignment += *other_vel;
+                
+                // Cohesion: steer towards average position of neighbors
+                if distance < cohesion_radius {
+                    cohesion += *other_pos;
+                }
             }
         }
+        
+        // Calculate steering forces
+        let mut steering = Vec2::ZERO;
+        
+        // Apply separation (strongest force)
+        if separation.length() > 0.0 {
+            steering += separation.normalize() * max_speed * 1.5;
+        }
+        
+        // Apply alignment
+        if neighbor_count > 0 {
+            let avg_velocity = alignment / neighbor_count as f32;
+            if avg_velocity.length() > 0.0 {
+                steering += (avg_velocity.normalize() * max_speed - boid_vel.0) * 0.5;
+            }
+            
+            // Apply cohesion
+            let avg_position = cohesion / neighbor_count as f32;
+            let cohesion_force = (avg_position - boid_pos.0).normalize_or_zero() * max_speed;
+            steering += (cohesion_force - boid_vel.0) * 0.3;
+        }
+        
+        // Add some wandering for natural movement
+        let wander_strength = 0.2;
+        let time_factor = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f32();
+        let wander_angle = (entity.index() as f32 + time_factor * 0.5).sin() * 2.0;
+        let wander = Vec2::new(wander_angle.cos(), wander_angle.sin()) * max_speed * wander_strength;
+        steering += wander;
+        
+        // Apply steering with smooth acceleration
+        boid_vel.0 += steering * 0.02; // Gentle acceleration
+        
+        // Limit speed and add boundaries
+        if boid_vel.0.length() > max_speed {
+            boid_vel.0 = boid_vel.0.normalize() * max_speed;
+        }
+        
+        // Boundary behavior: gently turn away from edges
+        let margin = 50.0;
+        let mut boundary_force = Vec2::ZERO;
+        
+        if boid_pos.0.x < margin {
+            boundary_force.x += (margin - boid_pos.0.x) * 0.5;
+        } else if boid_pos.0.x > game_config.game_width - margin {
+            boundary_force.x -= (boid_pos.0.x - (game_config.game_width - margin)) * 0.5;
+        }
+        
+        if boid_pos.0.y < margin {
+            boundary_force.y += (margin - boid_pos.0.y) * 0.5;
+        } else if boid_pos.0.y > game_config.game_height - margin {
+            boundary_force.y -= (boid_pos.0.y - (game_config.game_height - margin)) * 0.5;
+        }
+        
+        boid_vel.0 += boundary_force * 0.1;
     }
 }
 
@@ -427,39 +499,3 @@ struct StatusTimer(Timer);
 #[derive(Resource, Default)]
 struct GameState;
 
-/// Debug system to check what components each player entity has
-fn debug_player_components(
-    all_players: Query<Entity, With<boid_wars_shared::Player>>,
-    transforms: Query<&Transform>,
-    physics_players: Query<&physics::Player>,
-    positions: Query<&boid_wars_shared::Position>,
-    velocities: Query<&boid_wars_shared::Velocity>,
-    physics_velocities: Query<&bevy_rapier2d::dynamics::Velocity>,
-    mut debug_timer: Local<f32>,
-    time: Res<Time>,
-) {
-    *debug_timer += time.delta_secs();
-    
-    if *debug_timer > 3.0 {
-        *debug_timer = 0.0;
-        
-        info!("🔍 COMPONENT DEBUG: Checking player entities...");
-        
-        for entity in all_players.iter() {
-            let has_transform = transforms.contains(entity);
-            let has_physics_player = physics_players.contains(entity);
-            let has_position = positions.contains(entity);
-            let has_velocity = velocities.contains(entity);
-            let has_physics_velocity = physics_velocities.contains(entity);
-            
-            info!("🔍 Entity {:?}: Transform={}, PhysicsPlayer={}, Position={}, Velocity={}, PhysicsVelocity={}", 
-                entity, has_transform, has_physics_player, has_position, has_velocity, has_physics_velocity);
-                
-            if has_transform && has_physics_player && has_position && has_velocity && has_physics_velocity {
-                info!("✅ Entity {:?} has ALL required components for sync!", entity);
-            } else {
-                info!("❌ Entity {:?} is MISSING components for sync!", entity);
-            }
-        }
-    }
-}

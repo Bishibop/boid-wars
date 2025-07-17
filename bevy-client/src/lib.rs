@@ -22,7 +22,7 @@ pub fn run() {
                     resolution: (800.0, 600.0).into(),
                     canvas: Some("#bevy-canvas".into()),
                     fit_canvas_to_parent: true,
-                    prevent_default_event_handling: false,
+                    prevent_default_event_handling: true,
                     ..default()
                 }),
                 ..default()
@@ -195,13 +195,15 @@ fn handle_connection_events(
 type UnrenderedPlayer = (With<Player>, Without<Sprite>);
 type UnrenderedBoid = (With<Boid>, Without<Sprite>);
 type UnrenderedObstacle = (With<Obstacle>, Without<Sprite>);
+type UnrenderedProjectile = (With<Projectile>, Without<Sprite>);
 
-/// Render networked entities (players, boids, and obstacles from server)
+/// Render networked entities (players, boids, obstacles, and projectiles from server)
 fn render_networked_entities(
     mut commands: Commands,
     players: Query<(Entity, &Position, &Player), UnrenderedPlayer>,
     boids: Query<(Entity, &Position), UnrenderedBoid>,
     obstacles: Query<(Entity, &Position, &Obstacle), UnrenderedObstacle>,
+    projectiles: Query<(Entity, &Position), UnrenderedProjectile>,
 ) {
     // Add visual representation to networked players
     for (entity, position, _player) in players.iter() {
@@ -226,6 +228,15 @@ fn render_networked_entities(
             Transform::from_translation(Vec3::new(position.x, position.y, 0.5)), // Slightly behind other entities
         ));
     }
+
+    // Add visual representation to networked projectiles
+    for (entity, position) in projectiles.iter() {
+        info!("🎯 CLIENT: Rendering projectile at ({:.1}, {:.1})", position.x, position.y);
+        commands.entity(entity).insert((
+            Sprite::from_color(Color::srgb(0.0, 1.0, 1.0), Vec2::new(6.0, 6.0)), // Cyan bullets, slightly larger
+            Transform::from_translation(Vec3::new(position.x, position.y, 2.0)), // In front of other entities
+        ));
+    }
 }
 
 /// Sync Position component to Transform for rendering
@@ -237,26 +248,34 @@ fn sync_position_to_transform(mut query: Query<(&Position, &mut Transform), Chan
 }
 
 /// Send player input to server
-fn send_player_input(mut connection: ResMut<ConnectionManager>, keys: Res<ButtonInput<KeyCode>>) {
+fn send_player_input(
+    mut connection: ResMut<ConnectionManager>, 
+    keys: Res<ButtonInput<KeyCode>>, 
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    players: Query<&Position, With<Player>>,
+) {
     let mut movement = Vec2::ZERO;
-    let fire = false;
+    let fire = keys.pressed(KeyCode::Space) || mouse_buttons.pressed(MouseButton::Left);
 
-    // Basic WASD movement with debug logging
+    // Debug fire input (reduced logging)
+    if fire && movement.length() == 0.0 { // Only log when not moving to reduce spam
+        info!("🔥 CLIENT: Fire button pressed");
+    }
+
+    // Basic WASD movement
     if keys.pressed(KeyCode::KeyW) {
         movement.y += 1.0;
-        info!("🎮 CLIENT: W key pressed");
     }
     if keys.pressed(KeyCode::KeyS) {
         movement.y -= 1.0;
-        info!("🎮 CLIENT: S key pressed");
     }
     if keys.pressed(KeyCode::KeyA) {
         movement.x -= 1.0;
-        info!("🎮 CLIENT: A key pressed");
     }
     if keys.pressed(KeyCode::KeyD) {
         movement.x += 1.0;
-        info!("🎮 CLIENT: D key pressed");
     }
 
     // Normalize movement
@@ -264,8 +283,25 @@ fn send_player_input(mut connection: ResMut<ConnectionManager>, keys: Res<Button
         movement = movement.normalize();
     }
 
-    // For now, aim in the same direction as movement
-    let aim = movement;
+    // Calculate aim direction from mouse position
+    let mut aim = movement; // Fallback to movement direction
+    
+    if let (Ok(window), Ok((camera, camera_transform))) = (windows.single(), cameras.single()) {
+        if let Some(cursor_pos) = window.cursor_position() {
+            // Convert cursor position to world coordinates
+            if let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) {
+                // Get player position (assume we're the first/only player for now)
+                if let Ok(player_pos) = players.single() {
+                    // Calculate direction from player to mouse
+                    let direction = (world_pos - player_pos.0).normalize_or_zero();
+                    if direction.length() > 0.1 { // Only use mouse aim if it's valid
+                        aim = direction;
+                        info!("🎯 CLIENT: Mouse aim to ({:.1}, {:.1})", world_pos.x, world_pos.y);
+                    }
+                }
+            }
+        }
+    }
 
     let input = PlayerInput::new(movement, aim, fire);
     
