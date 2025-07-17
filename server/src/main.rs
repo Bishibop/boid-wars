@@ -154,6 +154,15 @@ fn spawn_boid_flock(commands: &mut Commands) {
         commands.spawn((
             BoidBundle::new(boid_id, x, y),
             Replicate::default(),
+            // Add physics components for collision
+            RigidBody::Dynamic,
+            Collider::ball(4.0), // Small boid collider
+            GameCollisionGroups::boid(),
+            bevy_rapier2d::prelude::ActiveEvents::COLLISION_EVENTS, // Enable collision detection
+            Transform::from_xyz(x, y, 0.0),
+            GlobalTransform::default(),
+            bevy_rapier2d::dynamics::Velocity::zero(),
+            bevy_rapier2d::dynamics::GravityScale(0.0),
         ));
     }
 }
@@ -179,6 +188,7 @@ fn spawn_static_obstacles(commands: &mut Commands) {
             Transform::from_xyz(*x, *y, 0.0),
             GlobalTransform::default(),
             collision_groups,
+            bevy_rapier2d::prelude::ActiveEvents::COLLISION_EVENTS, // Enable collision detection
             Name::new(format!("Obstacle {}", i + 1)),
             // Add network components to make it visible to clients
             boid_wars_shared::Position(Vec2::new(*x, *y)),
@@ -204,7 +214,7 @@ fn handle_reset_ai_message(
     boids: Query<Entity, With<Boid>>,
     obstacles: Query<Entity, With<Name>>,
 ) {
-    for message in reset_messages.read() {
+    for _message in reset_messages.read() {
         // Removed reset debug logs
         
         // Despawn all boids
@@ -298,15 +308,9 @@ fn handle_player_input(
         
         // Removed debug logs for cleaner output
 
-        let mut found_player = false;
         // Find the player for this client and update their physics input
         for (player, mut physics_input) in players.iter_mut() {
             if player.id == client_id.to_bits() {
-                found_player = true;
-                
-                // Store old values for comparison
-                let old_movement = physics_input.movement;
-                let old_thrust = physics_input.thrust;
                 
                 // Update physics input - this feeds into the physics input system
                 physics_input.movement = input.movement;

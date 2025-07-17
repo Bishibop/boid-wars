@@ -9,7 +9,7 @@ use boid_wars_shared;
 pub use bevy_rapier2d::prelude::{
     Collider, ExternalForce, ExternalImpulse,
     RapierPhysicsPlugin, RapierDebugRenderPlugin, RigidBody, Velocity,
-    RapierConfiguration,
+    Sensor, ActiveEvents, CollisionEvent,
 };
 
 /// Physics plugin that sets up Rapier2D and physics systems
@@ -90,7 +90,7 @@ impl GameCollisionGroups {
         let groups = Self::default();
         bevy_rapier2d::geometry::CollisionGroups::new(
             groups.projectiles,
-            groups.players | groups.walls
+            groups.players | groups.walls | groups.boids  // Projectiles hit players, walls, and boids
         )
     }
     
@@ -98,7 +98,15 @@ impl GameCollisionGroups {
         let groups = Self::default();
         bevy_rapier2d::geometry::CollisionGroups::new(
             groups.walls,
-            groups.players | groups.projectiles
+            groups.players | groups.projectiles | groups.boids
+        )
+    }
+    
+    pub fn boid() -> bevy_rapier2d::geometry::CollisionGroups {
+        let groups = Self::default();
+        bevy_rapier2d::geometry::CollisionGroups::new(
+            groups.boids,
+            groups.projectiles | groups.walls | groups.boids  // Boids collide with projectiles, walls, and each other
         )
     }
 }
@@ -273,6 +281,7 @@ impl ProjectilePool {
     }
 }
 
+
 /// Setup the arena with walls - using top-left origin like network coordinates
 fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
     let collision_groups = GameCollisionGroups::default();
@@ -446,7 +455,7 @@ fn player_input_system(
     
     for (input, player, mut velocity, transform) in player_query.iter_mut() {
         // Store old velocity for comparison
-        let old_velocity = velocity.linvel;
+        let _old_velocity = velocity.linvel;
         
         // Removed debug logs
         
@@ -520,16 +529,16 @@ fn shooting_system(
             // Reset cooldown
             player.weapon_cooldown.reset();
             
-            // Spawn projectile
+            // Spawn projectile - offset in the aim direction to avoid self-collision
+            let spawn_offset = 15.0; // Distance from player center
             let projectile_spawn_pos = transform.translation.truncate() + 
-                (transform.rotation * Vec3::Y).truncate() * 30.0; // Offset from ship center
+                input.aim_direction * spawn_offset; // Spawn in aim direction
             
             let projectile_velocity = input.aim_direction * weapon.projectile_speed;
             
             // Debug velocity calculation
             info!("🎯 PHYSICS: Player {} aim_direction=({:.1}, {:.1}) projectile_speed={:.1}", 
                 player.player_id, input.aim_direction.x, input.aim_direction.y, weapon.projectile_speed);
-            let collision_groups = GameCollisionGroups::default();
             
             let projectile_entity = commands.spawn((
                 // Physics projectile component (server-only)
@@ -548,13 +557,13 @@ fn shooting_system(
                 // Rapier2D components
                 RigidBody::Dynamic,
                 Collider::ball(2.0), // Small bullet collider
-                bevy_rapier2d::geometry::CollisionGroups::new(
-                    collision_groups.projectiles,
-                    collision_groups.players | collision_groups.walls
-                ),
+                Sensor, // Make it a sensor so it doesn't bounce
+                GameCollisionGroups::projectile(),
+                ActiveEvents::COLLISION_EVENTS, // Enable collision events
                 Velocity::linear(projectile_velocity),
                 Transform::from_translation(projectile_spawn_pos.extend(0.0)),
                 GlobalTransform::default(),
+                bevy_rapier2d::dynamics::GravityScale(0.0), // Disable gravity for projectiles
                 Name::new("Projectile"),
             )).id();
             
@@ -596,9 +605,9 @@ fn projectile_system(
             continue;
         }
         
-        // Check world bounds
+        // Check world bounds (using top-left origin coordinate system)
         let pos = transform.translation.truncate();
-        if pos.x.abs() > arena_config.width / 2.0 || pos.y.abs() > arena_config.height / 2.0 {
+        if pos.x < 0.0 || pos.x > arena_config.width || pos.y < 0.0 || pos.y > arena_config.height {
             commands.entity(entity).despawn();
         }
     }
@@ -610,30 +619,41 @@ fn collision_system(
     mut collision_events: EventReader<CollisionEvent>,
     mut player_query: Query<&mut Player>,
     projectile_query: Query<&Projectile>,
+    _boid_query: Query<Entity, With<boid_wars_shared::Boid>>,
+    _obstacle_query: Query<Entity, With<boid_wars_shared::Obstacle>>,
 ) {
     for collision_event in collision_events.read() {
         if let CollisionEvent::Started(entity1, entity2, _) = collision_event {
-            // Check for player-projectile collision
-            if let (Ok(mut player), Ok(projectile)) = (
-                player_query.get_mut(*entity1),
-                projectile_query.get(*entity2)
-            ) {
-                // Apply damage
-                player.health -= projectile.damage;
+            // Check if entity1 is a projectile
+            if let Ok(projectile) = projectile_query.get(*entity1) {
+                // Projectile hit something - despawn it
+                commands.entity(*entity1).despawn();
                 
-                // Despawn projectile
-                commands.entity(*entity2).despawn();
-                
-                // Handle player death
-                if player.health <= 0.0 {
-                    handle_player_death(&mut commands, *entity1);
+                // Check what it hit
+                if let Ok(mut player) = player_query.get_mut(*entity2) {
+                    // Hit a player - apply damage
+                    player.health -= projectile.damage;
+                    if player.health <= 0.0 {
+                        handle_player_death(&mut commands, *entity2);
+                    }
                 }
+                // Could add boid damage here if needed
             }
             
-            // Check for projectile-wall collision
-            if let Ok(_projectile) = projectile_query.get(*entity1) {
-                // Despawn projectile on wall hit
-                commands.entity(*entity1).despawn();
+            // Check if entity2 is a projectile (reverse collision)
+            if let Ok(projectile) = projectile_query.get(*entity2) {
+                // Projectile hit something - despawn it
+                commands.entity(*entity2).despawn();
+                
+                // Check what it hit
+                if let Ok(mut player) = player_query.get_mut(*entity1) {
+                    // Hit a player - apply damage
+                    player.health -= projectile.damage;
+                    if player.health <= 0.0 {
+                        handle_player_death(&mut commands, *entity1);
+                    }
+                }
+                // Could add boid damage here if needed
             }
         }
     }
@@ -769,7 +789,8 @@ pub fn spawn_ai_player(
             linear_damping: 0.5,  // Reduced damping to allow movement
             angular_damping: 1.0,
         },
-        bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(10.0), // Set reasonable mass
+        bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(10.0),
+        bevy_rapier2d::dynamics::GravityScale(0.0), // Set reasonable mass
         bevy_rapier2d::dynamics::GravityScale(0.0),
         lightyear::prelude::server::Replicate::default(),
         Name::new(format!("AI Player {} ({:?})", player_id, ai_type)),
@@ -790,7 +811,7 @@ fn sync_physics_to_network(
     
     // Removed debug logs
     
-    for (transform, mut position, physics_vel, mut net_vel, player) in query.iter_mut() {
+    for (transform, mut position, physics_vel, mut net_vel, _player) in query.iter_mut() {
         // Direct copy - both systems use same coordinate system now!
         let physics_pos = transform.translation.truncate();
         position.0 = physics_pos;
