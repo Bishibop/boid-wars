@@ -31,27 +31,36 @@ This document outlines our iterative development approach. Each iteration builds
 
 ---
 
-## Iteration 1: Prove the Core
+## Iteration 1: Prove the Core 🟡 (In Progress)
 
 **Goal**: Validate that shooting at swarms is fun
 
 ### Features
-- 2-4 players
-- 100-500 boids
-- Basic "hunt nearest player" AI
-- Simple projectile combat
-- Health and death for players/boids
-- Shrinking zone (basic battle royale)
+- ❌ 2-4 players (single player only - no multiplayer yet)
+- 🟡 100-500 boids (only 8 peaceful boids tested)
+- ✅ Basic "hunt nearest player" AI (peaceful flocking implemented)
+- ✅ Simple projectile combat (physics-based shooting)
+- ✅ Health and death for players/boids
+- ❌ Shrinking zone (basic battle royale) - not implemented
 
 ### Technical Goals
-- Basic spatial partitioning
-- Simple collision detection
-- Performance baseline metrics
+- ✅ Basic spatial partitioning (Rapier 2D broad phase)
+- ✅ Simple collision detection (Rapier 2D integration)
+- ✅ Performance baseline metrics (benchmarks added)
+
+### Physics Implementation ✅
+- ✅ Rapier 2D physics engine integrated
+- ✅ Thrust-based player movement with rotation
+- ✅ Projectile physics with proper trajectories
+- ✅ Collision detection for all entities
+- ✅ Bounded object pooling for projectiles
+- ✅ Dual coordinate system (Transform/Position)
+- ✅ Deterministic system ordering
 
 ### Success Criteria
-- 60 FPS with 500 boids
-- Players report "this is fun"
-- No major netcode issues
+- ❓ 60 FPS with 500 boids (not tested at scale)
+- ✅ Physics feels responsive and fun
+- ❓ No major netcode issues (multiplayer not working)
 
 ---
 
@@ -156,69 +165,55 @@ This document outlines our iterative development approach. Each iteration builds
 
 ## Current Status
 
-🎯 **We are here**: Iteration 0 - Partially Complete
+🎯 **We are here**: Iteration 1 - Physics Complete, Multiplayer Pending
 
 ### Completed ✅
-- Basic server game loop with 1 player and 1 boid
-- WASM client with canvas rendering  
-- WASD movement controls
-- Boid AI that follows players
-- Game state visualization
-- Build pipeline for WASM
+- **Iteration 0**: Tech Stack Validation ✅
+  - Basic server game loop
+  - Full Bevy WASM client implementation
+  - WebSocket networking for local dev
+  - Basic entity spawning
+  
+- **Physics Implementation** ✅
+  - Full physics system with Rapier 2D
+  - Thrust-based player movement
+  - Projectile combat system
+  - Collision detection for all entities
+  - Peaceful boid flocking behavior (8 boids)
+  - Object pooling for performance
+  - Transform/Position synchronization
+  - Performance benchmarks
 
-### Blocked 🔴
-- **Lightyear 0.21 API Breaking Changes**: The networking library API changed significantly
-  - `ServerPlugin` → `ServerPlugins` (usage unclear)
-  - Component registration methods don't exist
-  - No working examples found for v0.21
-  - **Workaround**: Running without networking (offline mode)
-- **SSL/WebTransport Issues**: 
-  - Certificates not configured
-  - **Workaround**: Disabled HTTPS
+### Not Yet Implemented ❌
+- **Multiplayer**: No client-server connection working
+- **Entity Replication**: Lightyear networking not functional
+- **Scale Testing**: Only tested with 8 boids, not 500+
+- **WebTransport**: Using WebSocket fallback only
+- **Deployment**: Not deployed to Fly.io
 
-### Technical Debt
-1. **protocol.rs** - Networking code commented out
-2. **No multiplayer** - Just local simulation 
-3. **No entity replication** - Components defined but not networked
-4. **Connection handling stubbed** - Events defined but not processed
+### Physics Features Implemented ✅
+- **Movement**: Thrust-based with rotation, momentum, and damping
+- **Combat**: Physics-based projectiles with proper trajectories
+- **Collisions**: Player-player, player-boid, projectile-all
+- **Optimization**: Bounded pooling with generation tracking
+- **Sync**: Dual coordinate system (Transform/Position)
+- **Testing**: Integration tests for physics/network sync
 
-### Recovery Instructions
-If continuing from this point:
+### Recent Improvements ✅
+- **Physics System**: Complete Rapier 2D integration
+- **Performance**: Bounded object pools prevent memory fragmentation
+- **Stability**: Explicit system ordering eliminates race conditions
+- **Configuration**: All physics constants centralized
+- **Code Quality**: Removed magic numbers and unnecessary logging
 
-1. **Current Working State**:
-   - Server: `cargo run -p boid-wars-server`
-   - Client: `cd client && npm run dev`
-   - Game works in offline mode with WASD controls
+### Next Steps (Complete Iteration 1):
+1. **Fix Multiplayer**: Get Lightyear 0.20 networking functional
+2. **Entity Replication**: Sync positions between client/server
+3. **Test at Scale**: Spawn 100-500 boids as planned
+4. **Connect Bevy Client**: Get WASM client talking to server
+5. **Deploy to Fly.io**: Test in production environment
 
-2. **To Enable Networking**:
-   - Research Lightyear 0.21 examples in `lightyear/examples/simple_box`
-   - Generate SSL certs: `cd deploy && mkcert localhost 127.0.0.1 ::1`
-   - Fix component registration in `shared/src/protocol.rs`
-   - Re-enable connection handling in `server/src/main.rs`
-
-3. **Key Problem Areas**:
-   - `/shared/src/protocol.rs` - Component registration commented out
-   - `/server/src/main.rs` - Connection handling disabled
-   - `/docs/technical/LIGHTYEAR_0.21_API.md` - Research notes on API changes
-
-### Recent Progress ✅
-- **Migration to Lightyear 0.20**: Successfully migrated from 0.21 to 0.20 stable API
-- **Protocol.rs updated**: Fixed PeerId type issue, removed broken 0.21 patterns
-- **Server architecture fixed**: Updated to use proper 0.20 observer pattern with Connected components
-- **Connection handling implemented**: Using Trigger<OnAdd, Connected> pattern from working examples
-- **Server spawn updated**: Now using NetcodeServer::new(NetcodeConfig::default())
-- **ReplicationSender added**: Proper client replication setup for new connections
-
-### Current Status 🟡
-- **Server code updated**: All 0.21 patterns replaced with working 0.20 equivalents
-- **Shell environment issue**: Temporary shell problem preventing compilation testing
-- **API compatibility**: Import issues from 0.21 resolved, using stable 0.20 patterns
-
-### Next Steps:
-1. **Test server compilation**: Verify server compiles with 0.20 patterns
-2. **Fix any remaining import issues**: Address compilation errors
-3. **Test basic server startup**: Run server to verify it starts without crashes
-4. **Test client connection**: Try connecting WASM client to server
-5. **Implement entity replication**: Get positions syncing between client/server
-6. **Add shooting mechanics**: Implement click-to-shoot functionality
-7. **Deploy to Fly.io**: Production deployment
+### Future (Iteration 2):
+1. **Scale boid count**: Test with 1k → 2k → 5k → 10k boids
+2. **Optimize flocking**: Implement efficient spatial queries
+3. **Zone shrinking**: Implement battle royale mechanics

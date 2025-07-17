@@ -108,10 +108,6 @@ impl PlayerInput {
 
 // Messages
 
-/// Reset AI players message
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
-pub struct ResetAIMessage;
-
 impl Default for PlayerInput {
     fn default() -> Self {
         Self {
@@ -124,10 +120,6 @@ impl Default for PlayerInput {
 
 // Implement MapEntities for input (required by Lightyear)
 impl MapEntities for PlayerInput {
-    fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
-}
-
-impl MapEntities for ResetAIMessage {
     fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
 }
 
@@ -188,7 +180,6 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // Register types with Bevy
         app.register_type::<PlayerInput>();
-        app.register_type::<ResetAIMessage>();
 
         // Register components for replication using correct Lightyear 0.20 API
         // Only register basic replication for now - no interpolation to avoid missing function errors
@@ -203,7 +194,6 @@ impl Plugin for ProtocolPlugin {
 
         // Register PlayerInput as message (not input plugin)
         app.register_message::<PlayerInput>(ChannelDirection::ClientToServer);
-        app.register_message::<ResetAIMessage>(ChannelDirection::ClientToServer);
 
         // Register channels using correct Lightyear 0.20 API
         app.add_channel::<UnreliableChannel>(ChannelSettings {

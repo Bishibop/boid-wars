@@ -34,8 +34,9 @@ Boid Wars is a multiplayer twin-stick bullet-hell space shooter featuring massiv
 - **Language**: Rust
 - **Game Framework**: Bevy ECS 0.16
 - **Networking**: Lightyear 0.20 (WebTransport/WebSocket)
-- **Physics**: Rapier 2D
+- **Physics**: Rapier 2D (integrated)
 - **Spatial Indexing**: R-tree (rstar crate)
+- **Entity Pooling**: Custom bounded pool with generation tracking
 
 ### Frontend
 - **Language**: Rust
@@ -110,13 +111,15 @@ Boid Wars is a multiplayer twin-stick bullet-hell space shooter featuring massiv
 Responsibilities:
 - Authoritative game state
 - Boid AI simulation (10k+ enemies with flocking behaviors)
-- Physics simulation (Rapier)
-- Player input processing
+- Physics simulation (Rapier2D with dual coordinate system)
+- Player input processing (thrust-based movement)
 - Hit detection (projectiles vs players/boids)
-- Zone shrinking logic (battle royale mode)
-- Temporary alliance management
-- Game mode logic (battle royale, single player, co-op)
-- Entity replication via Lightyear 0.21
+- Zone shrinking logic (battle royale mode) - planned
+- Temporary alliance management - planned
+- Game mode logic (battle royale, single player, co-op) - planned
+- Entity replication via Lightyear 0.20 - not yet functional
+- Projectile pooling for performance
+- Transform/Position synchronization
 ```
 
 ### 2. Browser Client (Bevy WASM)
@@ -164,6 +167,9 @@ Responsibilities:
 - **Interest Management**: Only replicate entities within player viewport
 - **Delta Compression**: Send only changed component values
 - **Fixed Timestep**: Deterministic simulation for consistency
+- **Object Pooling**: Pre-allocated projectile pool with generation tracking
+- **Dual Coordinate Systems**: Transform (physics) and Position (network) with automatic sync
+- **Explicit System Ordering**: PhysicsSet enum for deterministic execution order
 
 ### Client-Side
 - **Bevy Sprite Batching**: Automatic instanced rendering for boid swarms
@@ -197,6 +203,38 @@ Responsibilities:
 4. Scale hardware if needed
 5. Repeat until target metrics achieved
 
+## Physics Implementation
+
+### Coordinate System Architecture
+
+The game uses a dual coordinate system to maintain compatibility between physics and networking:
+
+- **Network Layer (Position)**: Top-left origin (0,0), matching web conventions
+- **Physics Layer (Transform)**: Center origin, standard Bevy/Rapier conventions
+- **Synchronization**: Automatic bidirectional sync via PositionSyncPlugin
+
+### Entity Management
+
+#### Projectile Pooling
+- **Bounded Pool**: Fixed-size pool with generation tracking
+- **Pre-spawning**: 100 initial projectiles, max 500
+- **Generation Tracking**: Prevents use-after-free bugs
+- **Fallback**: Dynamic spawning when pool exhausted
+
+#### System Execution Order
+```rust
+PhysicsSet {
+    Input -> AI -> Movement -> Combat -> Collision -> ResourceManagement -> NetworkSync
+}
+```
+
+### Physics Configuration
+
+All physics constants are centralized in configuration resources:
+- `PhysicsConfig`: Movement speeds, forces, collision sizes
+- `MonitoringConfig`: Performance tracking intervals
+- No magic numbers in gameplay code
+
 ## Security Considerations
 
 - Server validates all player inputs
@@ -204,14 +242,24 @@ Responsibilities:
 - No client-side game logic
 - HTTPS/WSS for all connections
 - Input sanitization for chat/usernames
+- Generation-based entity validation in pools
 
 ## Development Workflow
 
 ### Repository Structure
 ```
 boid-wars/
-├── shared/           # Rust shared types
+├── shared/           # Rust shared types & protocol
 ├── server/           # Game server
+│   ├── src/
+│   │   ├── main.rs          # Server entry & connection handling
+│   │   ├── physics.rs       # Physics systems & combat
+│   │   ├── position_sync.rs # Transform/Position synchronization
+│   │   ├── pool.rs          # Bounded object pooling
+│   │   ├── config.rs        # Physics configuration
+│   │   └── despawn_utils.rs # Safe entity cleanup
+│   ├── benches/      # Performance benchmarks
+│   └── tests/        # Integration tests
 ├── bevy-client/      # Bevy WASM client
 └── deploy/           # Deployment configs
 

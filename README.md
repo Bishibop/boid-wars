@@ -8,6 +8,7 @@ Boid Wars is a competitive space shooter where players battle against thousands 
 
 ### Key Features
 - **Massive Scale**: 10,000+ AI enemies using optimized boid flocking algorithms
+- **Realistic Physics**: Thrust-based movement, projectile physics, and collision detection
 - **Low Latency**: WebTransport protocol for near-instant response times
 - **Browser-Based**: No downloads required - runs in modern web browsers
 - **Server Authoritative**: Secure, cheat-resistant architecture
@@ -16,6 +17,7 @@ Boid Wars is a competitive space shooter where players battle against thousands 
 
 - **Server**: Rust + Bevy ECS + Lightyear 0.20 (WebTransport/WebSocket)
 - **Client**: Rust + Bevy ECS (WASM build)
+- **Physics**: Rapier 2D for realistic movement and collisions
 - **Protocol**: WebTransport (production) / WebSocket (development)
 - **Architecture**: Unified Rust codebase for maximum performance
 
@@ -111,6 +113,8 @@ Enable diagnostics with the `--features debug` flag during development.
 
 - **Server Authoritative**: All game logic runs on the server
 - **Entity Replication**: Automatic synchronization via Lightyear
+- **Physics Integration**: Rapier 2D with dual coordinate system (Transform/Position)
+- **Object Pooling**: Efficient projectile management with generation tracking
 - **Interest Management**: Only relevant entities sent to each client
 - **Delta Compression**: Minimal bandwidth usage
 
@@ -142,6 +146,9 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 🚧 **Architecture Migration** - Currently migrating from TypeScript/Pixi.js to full Bevy WASM client. Core gameplay in active development.
 
 ### Recent Changes
-- Migrated to Lightyear 0.20 for better WASM support
+- Implemented full physics system with Rapier 2D integration
+- Added thrust-based player movement and projectile combat
+- Optimized entity spawning with bounded object pooling
 - Switched to full Bevy WASM client for unified architecture
+- Using Lightyear 0.20 for networking (stable API)
 - Implemented WebSocket fallback for local development

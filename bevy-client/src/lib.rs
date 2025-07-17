@@ -45,7 +45,7 @@ pub fn run() {
     )));
 
     // Add systems
-    app.add_systems(Startup, (setup_scene, connect_to_server, setup_ui));
+    app.add_systems(Startup, (setup_scene, connect_to_server));
     app.add_systems(
         Update,
         (
@@ -55,7 +55,6 @@ pub fn run() {
             sync_position_to_transform,
             send_player_input,
             debug_player_count,
-            button_system,
         ),
     );
 
@@ -341,81 +340,5 @@ fn debug_player_count(
             all_players.iter().count(),
             rendered_players.iter().count()
         );
-    }
-}
-
-/// Component to mark the reset button
-#[derive(Component)]
-struct ResetButton;
-
-/// Set up UI elements
-fn setup_ui(mut commands: Commands) {
-    // Create a simple button
-    commands
-        .spawn((
-            Button,
-            Node {
-                width: Val::Px(150.0),
-                height: Val::Px(50.0),
-                position_type: PositionType::Absolute,
-                left: Val::Px(10.0),
-                top: Val::Px(10.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
-            ResetButton,
-        ))
-        .with_children(|parent| {
-            parent.spawn((
-                Text::new("Reset (R/Enter)"),
-                TextFont {
-                    font_size: 20.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.9, 0.9, 0.9)),
-            ));
-        });
-}
-
-/// Handle button clicks and reset
-#[allow(clippy::type_complexity)]
-fn button_system(
-    mut interaction_query: Query<
-        (&Interaction, &mut BackgroundColor),
-        (Changed<Interaction>, With<ResetButton>),
-    >,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut connection: ResMut<ConnectionManager>,
-) {
-    let mut should_reset = false;
-
-    for (interaction, mut color) in interaction_query.iter_mut() {
-        match *interaction {
-            Interaction::Pressed => {
-                *color = BackgroundColor(Color::srgb(0.35, 0.75, 0.35));
-                should_reset = true;
-            }
-            Interaction::Hovered => {
-                *color = BackgroundColor(Color::srgb(0.25, 0.25, 0.25));
-            }
-            Interaction::None => {
-                *color = BackgroundColor(Color::srgb(0.15, 0.15, 0.15));
-            }
-        }
-    }
-
-    // Also allow R key or Enter to reset
-    if keyboard.just_pressed(KeyCode::KeyR) || keyboard.just_pressed(KeyCode::Enter) {
-        should_reset = true;
-    }
-
-    if should_reset {
-        // Send reset message to server
-        let reset_message = ResetAIMessage;
-        if let Err(e) = connection.send_message::<ReliableChannel, ResetAIMessage>(&reset_message) {
-            warn!("Failed to send reset message: {:?}", e);
-        }
     }
 }

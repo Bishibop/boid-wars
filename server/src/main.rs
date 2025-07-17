@@ -13,7 +13,6 @@ pub mod pool;
 pub mod position_sync;
 use bevy_rapier2d::prelude::{Collider, ExternalForce, ExternalImpulse, RigidBody};
 use config::PhysicsConfig;
-use despawn_utils::SafeDespawnExt;
 use physics::{GameCollisionGroups, PhysicsPlugin, Ship, WeaponStats};
 use position_sync::{PositionSyncPlugin, SyncPosition};
 
@@ -90,14 +89,7 @@ impl Plugin for BoidWarsServerPlugin {
         app.add_systems(Startup, setup_server);
 
         // Connection handling
-        app.add_systems(
-            Update,
-            (
-                handle_connections,
-                handle_player_input,
-                handle_reset_ai_message,
-            ),
-        );
+        app.add_systems(Update, (handle_connections, handle_player_input));
 
         // Add game systems
         app.add_systems(Update, (log_status, spawn_collision_objects_delayed));
@@ -216,34 +208,6 @@ fn spawn_static_obstacles(commands: &mut Commands) {
             lightyear::prelude::server::Replicate::default(),
             SyncPosition, // Mark for position sync
         ));
-    }
-}
-
-// Handle reset message from client (respawn AI players and obstacles)
-fn handle_reset_ai_message(
-    mut commands: Commands,
-    mut reset_messages: EventReader<ReceiveMessage<ResetAIMessage>>,
-    boids: Query<Entity, With<Boid>>,
-    obstacles: Query<Entity, With<Name>>,
-) {
-    for _message in reset_messages.read() {
-        // Reset debug logs
-
-        // Despawn all boids
-        for entity in boids.iter() {
-            commands.safe_despawn(entity);
-        }
-
-        // Despawn all obstacles (they have Name components)
-        for entity in obstacles.iter() {
-            commands.safe_despawn(entity);
-        }
-
-        // Spawn new boids and obstacles
-        spawn_boid_flock(&mut commands);
-        spawn_static_obstacles(&mut commands);
-
-        // Reset complete log
     }
 }
 

@@ -1,5 +1,9 @@
 # Player and Shooting Physics Implementation Proposal
 
+**STATUS: COMPLETED - Archived 2025-01-17**
+
+This proposal has been fully implemented in the `feature/player-physics` branch and merged. See CHANGELOG.md for implementation details.
+
 ## Overview
 
 This document outlines the technical implementation plan for player movement and shooting physics in Boid Wars. The system is designed to support fast-paced arcade-style dogfighting with twin-stick controls while maintaining compatibility with future boid enemy integration.
