@@ -98,7 +98,11 @@ pub struct PlayerInput {
 impl PlayerInput {
     /// Create a new PlayerInput
     pub fn new(movement: Vec2, aim: Vec2, fire: bool) -> Self {
-        Self { movement, aim, fire }
+        Self {
+            movement,
+            aim,
+            fire,
+        }
     }
 }
 

@@ -6,9 +6,13 @@ use lightyear::server::message::ReceiveMessage;
 use std::net::SocketAddr;
 use tracing::info;
 
+pub mod despawn_utils;
 pub mod physics;
-use physics::{PhysicsPlugin, Ship, WeaponStats, GameCollisionGroups, Projectile};
-use bevy_rapier2d::prelude::{RigidBody, Collider, ExternalForce, ExternalImpulse};
+pub mod position_sync;
+use bevy_rapier2d::prelude::{Collider, ExternalForce, ExternalImpulse, RigidBody};
+use despawn_utils::SafeDespawnExt;
+use physics::{GameCollisionGroups, PhysicsPlugin, Ship, WeaponStats};
+use position_sync::{PositionSyncPlugin, SyncPosition};
 
 fn main() {
     info!("🚀 Boid Wars Server Starting...");
@@ -38,6 +42,7 @@ fn main() {
         .add_plugins(ServerPlugins::new(lightyear_config))
         .add_plugins(ProtocolPlugin)
         .add_plugins(PhysicsPlugin)
+        .add_plugins(PositionSyncPlugin)
         .add_plugins(BoidWarsServerPlugin)
         .run();
 }
@@ -82,12 +87,19 @@ impl Plugin for BoidWarsServerPlugin {
         app.add_systems(Startup, setup_server);
 
         // Connection handling
-        app.add_systems(Update, (handle_connections, handle_player_input, handle_reset_ai_message));
+        app.add_systems(
+            Update,
+            (
+                handle_connections,
+                handle_player_input,
+                handle_reset_ai_message,
+            ),
+        );
 
         // Add game systems
         app.add_systems(Update, (log_status, spawn_collision_objects_delayed));
-        app.add_systems(FixedUpdate, (move_players, move_boids, update_boid_ai));
-        
+        app.add_systems(FixedUpdate, (move_boids, update_boid_ai));
+
         // Note: Physics systems (player_input_system, etc.) are added by PhysicsPlugin in FixedUpdate
     }
 }
@@ -118,7 +130,7 @@ fn setup_server(mut commands: Commands) {
     ));
 
     info!("🤖 Spawned initial boid with replication");
-    
+
     info!("🌐 Server ready for client connections");
 }
 
@@ -132,37 +144,37 @@ fn spawn_collision_objects_delayed(
     if !players.is_empty() && !*spawned {
         *spawned = true;
         // Spawn peaceful boids instead of AI players
-        
+
         spawn_boid_flock(&mut commands);
         spawn_static_obstacles(&mut commands);
     }
 }
 
-
 // Helper function to spawn peaceful boids
 fn spawn_boid_flock(commands: &mut Commands) {
     let game_config = &*GAME_CONFIG;
-    
+
     // Spawn 8 boids scattered around the arena
     for i in 0..8 {
         let boid_id = 100 + i; // Use IDs 100-107
-        
+
         // Scatter them around the arena
         let x = (i as f32 * 100.0) % game_config.game_width;
         let y = (i as f32 * 80.0) % game_config.game_height;
-        
+
         commands.spawn((
             BoidBundle::new(boid_id, x, y),
             Replicate::default(),
             // Add physics components for collision
             RigidBody::Dynamic,
-            Collider::ball(4.0), // Small boid collider
+            Collider::ball(physics::BOID_RADIUS), // Small boid collider
             GameCollisionGroups::boid(),
             bevy_rapier2d::prelude::ActiveEvents::COLLISION_EVENTS, // Enable collision detection
             Transform::from_xyz(x, y, 0.0),
             GlobalTransform::default(),
             bevy_rapier2d::dynamics::Velocity::zero(),
             bevy_rapier2d::dynamics::GravityScale(0.0),
+            SyncPosition, // Mark for position sync
         ));
     }
 }
@@ -171,16 +183,16 @@ fn spawn_boid_flock(commands: &mut Commands) {
 fn spawn_static_obstacles(commands: &mut Commands) {
     let _game_config = &*GAME_CONFIG;
     let collision_groups = GameCollisionGroups::wall();
-    
+
     // Create some obstacles scattered around the arena
     let obstacles = [
         (200.0, 200.0, 30.0, 30.0), // Square obstacle
-        (600.0, 150.0, 40.0, 20.0), // Rectangular obstacle  
+        (600.0, 150.0, 40.0, 20.0), // Rectangular obstacle
         (300.0, 400.0, 25.0, 25.0), // Small square
         (500.0, 350.0, 35.0, 35.0), // Medium square
         (150.0, 450.0, 50.0, 15.0), // Long rectangle
     ];
-    
+
     for (i, (x, y, width, height)) in obstacles.iter().enumerate() {
         commands.spawn((
             RigidBody::Fixed,
@@ -199,12 +211,9 @@ fn spawn_static_obstacles(commands: &mut Commands) {
             },
             boid_wars_shared::Health::default(),
             lightyear::prelude::server::Replicate::default(),
+            SyncPosition, // Mark for position sync
         ));
-        
-        // Removed obstacle spawn log
     }
-    
-    // Removed obstacle spawn complete log
 }
 
 // Handle reset message from client (respawn AI players and obstacles)
@@ -215,23 +224,23 @@ fn handle_reset_ai_message(
     obstacles: Query<Entity, With<Name>>,
 ) {
     for _message in reset_messages.read() {
-        // Removed reset debug logs
-        
+        // Reset debug logs
+
         // Despawn all boids
         for entity in boids.iter() {
-            commands.entity(entity).despawn();
+            commands.safe_despawn(entity);
         }
-        
+
         // Despawn all obstacles (they have Name components)
         for entity in obstacles.iter() {
-            commands.entity(entity).despawn();
+            commands.safe_despawn(entity);
         }
-        
+
         // Spawn new boids and obstacles
         spawn_boid_flock(&mut commands);
         spawn_static_obstacles(&mut commands);
-        
-        // Removed reset complete log
+
+        // Reset complete log
     }
 }
 
@@ -241,7 +250,7 @@ fn handle_connections(mut commands: Commands, mut connections: EventReader<Conne
 
     for event in connections.read() {
         let client_id = event.client_id;
-        // Removed connection log
+        // Connection log
 
         // Spawn a player for the connected client with both networking and physics
         let player_entity = commands
@@ -262,7 +271,7 @@ fn handle_connections(mut commands: Commands, mut connections: EventReader<Conne
                 },
             ))
             .id();
-        
+
         // Add physics components separately to avoid tuple size limits
         commands.entity(player_entity).insert((
             physics::Player {
@@ -273,7 +282,7 @@ fn handle_connections(mut commands: Commands, mut connections: EventReader<Conne
             Ship::default(),
             WeaponStats::default(),
         ));
-        
+
         // Add physics body components
         commands.entity(player_entity).insert((
             RigidBody::Dynamic,
@@ -287,45 +296,71 @@ fn handle_connections(mut commands: Commands, mut connections: EventReader<Conne
             bevy_rapier2d::dynamics::GravityScale(0.0), // Disable gravity for top-down space game
             bevy_rapier2d::dynamics::Sleeping::disabled(),
             bevy_rapier2d::dynamics::Damping {
-                linear_damping: 0.0,  // No damping for immediate response
+                linear_damping: 0.0, // No damping for immediate response
                 angular_damping: 0.0,
             },
-            bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(1.0),  // Light mass
+            bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(1.0), // Light mass
+            SyncPosition,                                                 // Mark for position sync
         ));
 
-        // Removed spawn logs
+        // Spawn logs
     }
 }
 
 // Handle player input messages - update physics input properly
 fn handle_player_input(
     mut message_events: EventReader<ReceiveMessage<boid_wars_shared::PlayerInput>>,
-    mut players: Query<(&boid_wars_shared::Player, &mut physics::PlayerInput), With<physics::Player>>,
+    mut players: Query<
+        (&boid_wars_shared::Player, &mut physics::PlayerInput),
+        With<physics::Player>,
+    >,
 ) {
     for event in message_events.read() {
         let client_id = event.from;
         let input = &event.message;
-        
-        // Removed debug logs for cleaner output
+
+        // Input validation
+        if !validate_player_input(input) {
+            warn!(
+                "Invalid input from client {:?}: movement={:?}, aim={:?}",
+                client_id, input.movement, input.aim
+            );
+            continue;
+        }
 
         // Find the player for this client and update their physics input
         for (player, mut physics_input) in players.iter_mut() {
             if player.id == client_id.to_bits() {
-                
                 // Update physics input - this feeds into the physics input system
-                physics_input.movement = input.movement;
-                physics_input.aim_direction = input.aim;
-                physics_input.thrust = if input.movement.length() > 0.0 { 1.0 } else { 0.0 };
+                physics_input.movement = input.movement.normalize_or_zero(); // Ensure normalized
+                physics_input.aim_direction = input.aim.normalize_or_zero(); // Ensure normalized
+                physics_input.thrust = if input.movement.length() > 0.0 {
+                    1.0
+                } else {
+                    0.0
+                };
                 physics_input.shooting = input.fire;
-
-                // Removed fire input spam logging
             }
         }
-        
-        // Removed debug logs
     }
 }
 
+/// Validate player input to prevent malicious or malformed data
+fn validate_player_input(input: &boid_wars_shared::PlayerInput) -> bool {
+    // Check movement vector is valid
+    if !input.movement.is_finite() || input.movement.length() > 1.1 {
+        return false;
+    }
+
+    // Check aim direction is valid
+    if !input.aim.is_finite() || input.aim.length() > 1.1 {
+        return false;
+    }
+
+    true
+}
+
+#[allow(clippy::too_many_arguments)]
 fn log_status(
     time: Res<Time>,
     mut status_timer: ResMut<StatusTimer>,
@@ -343,7 +378,7 @@ fn log_status(
         let projectile_count = projectiles.iter().len();
         let total_entities = all_entities.iter().len();
         let physics_component_count = all_physics_components.iter().len();
-        
+
         info!(
             "📊 Server - Uptime: {:.1}s | Network Players: {} | Boids: {} | Physics Players: {} | Projectiles: {} | Total Entities: {} | Physics Components: {}",
             time.elapsed_secs(),
@@ -357,107 +392,125 @@ fn log_status(
     }
 }
 
-fn move_players(time: Res<Time>, mut players: Query<(&mut Position, &boid_wars_shared::Velocity), With<boid_wars_shared::Player>>) {
+// Player movement is handled by the physics system in physics.rs
+
+fn move_boids(
+    time: Res<Time>,
+    mut boids: Query<
+        (
+            &mut Transform,
+            &boid_wars_shared::Velocity,
+            Option<&mut bevy_rapier2d::dynamics::Velocity>,
+        ),
+        With<Boid>,
+    >,
+) {
     let game_config = &*GAME_CONFIG;
     let delta = time.delta_secs();
 
-    for (mut pos, vel) in players.iter_mut() {
-        // For now, just apply velocity until we have input handling working
-        // Update position
-        pos.0.x += vel.0.x * delta;
-        pos.0.y += vel.0.y * delta;
-
-        // Keep player in bounds
-        pos.0.x = pos.0.x.clamp(0.0, game_config.game_width);
-        pos.0.y = pos.0.y.clamp(0.0, game_config.game_height);
-    }
-}
-
-fn move_boids(time: Res<Time>, mut boids: Query<(&mut Position, &boid_wars_shared::Velocity), With<Boid>>) {
-    let game_config = &*GAME_CONFIG;
-    let delta = time.delta_secs();
-
-    for (mut pos, vel) in boids.iter_mut() {
-        // Update position
-        pos.0.x += vel.0.x * delta;
-        pos.0.y += vel.0.y * delta;
+    for (mut transform, vel, physics_vel) in boids.iter_mut() {
+        // Update transform position (physics)
+        transform.translation.x += vel.0.x * delta;
+        transform.translation.y += vel.0.y * delta;
 
         // Keep boid in bounds
-        pos.0.x = pos.0.x.clamp(0.0, game_config.game_width);
-        pos.0.y = pos.0.y.clamp(0.0, game_config.game_height);
+        transform.translation.x = transform.translation.x.clamp(0.0, game_config.game_width);
+        transform.translation.y = transform.translation.y.clamp(0.0, game_config.game_height);
+
+        // Also update physics velocity if present
+        if let Some(mut phys_vel) = physics_vel {
+            phys_vel.linvel = vel.0;
+        }
     }
 }
 
 fn update_boid_ai(
-    mut boids: Query<(Entity, &Position, &mut boid_wars_shared::Velocity), With<Boid>>,
-    _players: Query<&Position, (With<boid_wars_shared::Player>, Without<Boid>)>,
+    mut boids: Query<(Entity, &Transform, &mut boid_wars_shared::Velocity), With<Boid>>,
+    _players: Query<&Transform, (With<boid_wars_shared::Player>, Without<Boid>)>,
+    mut debug_timer: Local<f32>,
+    time: Res<Time>,
 ) {
+    *debug_timer += time.delta_secs();
+
     let game_config = &*GAME_CONFIG;
     let max_speed = game_config.boid_speed * 0.4; // Slower, more peaceful movement
-    
+
+    let boid_count = boids.iter().count();
+    if *debug_timer > 2.0 {
+        info!(
+            "🐦 BOID AI: Processing {} boids with max_speed={:.1}",
+            boid_count, max_speed
+        );
+        *debug_timer = 0.0;
+    }
+
     // Collect all boid data for flocking calculations
-    let boid_data: Vec<(Entity, Vec2, Vec2)> = boids.iter()
-        .map(|(entity, pos, vel)| (entity, pos.0, vel.0))
+    let boid_data: Vec<(Entity, Vec2, Vec2)> = boids
+        .iter()
+        .map(|(entity, transform, vel)| (entity, transform.translation.truncate(), vel.0))
         .collect();
-    
-    for (entity, boid_pos, mut boid_vel) in boids.iter_mut() {
+
+    for (entity, boid_transform, mut boid_vel) in boids.iter_mut() {
+        let boid_pos = boid_transform.translation.truncate();
         let mut separation = Vec2::ZERO;
         let mut alignment = Vec2::ZERO;
         let mut cohesion = Vec2::ZERO;
         let mut neighbor_count = 0;
-        
+
         // Flocking parameters
         let separation_radius = 50.0;
         let alignment_radius = 80.0;
         let cohesion_radius = 100.0;
-        
+
         for (other_entity, other_pos, other_vel) in &boid_data {
-            if *other_entity == entity { continue; } // Skip self
-            
-            let diff = boid_pos.0 - *other_pos;
+            if *other_entity == entity {
+                continue;
+            } // Skip self
+
+            let diff = boid_pos - *other_pos;
             let distance = diff.length();
-            
+
             // Separation: avoid crowding neighbors
             if distance > 0.0 && distance < separation_radius {
                 let normalized_diff = diff / distance;
                 separation += normalized_diff / distance; // Stronger when closer
             }
-            
+
             // Alignment and Cohesion: only with nearby neighbors
             if distance < alignment_radius {
                 neighbor_count += 1;
-                
+
                 // Alignment: steer towards average heading of neighbors
                 alignment += *other_vel;
-                
+
                 // Cohesion: steer towards average position of neighbors
                 if distance < cohesion_radius {
                     cohesion += *other_pos;
                 }
             }
         }
-        
+
         // Calculate steering forces
         let mut steering = Vec2::ZERO;
-        
+
         // Apply separation (strongest force)
         if separation.length() > 0.0 {
             steering += separation.normalize() * max_speed * 1.5;
         }
-        
+
         // Apply alignment
         if neighbor_count > 0 {
             let avg_velocity = alignment / neighbor_count as f32;
             if avg_velocity.length() > 0.0 {
                 steering += (avg_velocity.normalize() * max_speed - boid_vel.0) * 0.5;
             }
-            
+
             // Apply cohesion
             let avg_position = cohesion / neighbor_count as f32;
-            let cohesion_force = (avg_position - boid_pos.0).normalize_or_zero() * max_speed;
+            let cohesion_force = (avg_position - boid_pos).normalize_or_zero() * max_speed;
             steering += (cohesion_force - boid_vel.0) * 0.3;
         }
-        
+
         // Add some wandering for natural movement
         let wander_strength = 0.2;
         let time_factor = std::time::SystemTime::now()
@@ -465,41 +518,49 @@ fn update_boid_ai(
             .unwrap()
             .as_secs_f32();
         let wander_angle = (entity.index() as f32 + time_factor * 0.5).sin() * 2.0;
-        let wander = Vec2::new(wander_angle.cos(), wander_angle.sin()) * max_speed * wander_strength;
+        let wander =
+            Vec2::new(wander_angle.cos(), wander_angle.sin()) * max_speed * wander_strength;
         steering += wander;
-        
+
         // Apply steering with smooth acceleration
         boid_vel.0 += steering * 0.02; // Gentle acceleration
-        
+
         // Limit speed and add boundaries
         if boid_vel.0.length() > max_speed {
             boid_vel.0 = boid_vel.0.normalize() * max_speed;
         }
-        
+
         // Boundary behavior: gently turn away from edges
         let margin = 50.0;
         let mut boundary_force = Vec2::ZERO;
-        
-        if boid_pos.0.x < margin {
-            boundary_force.x += (margin - boid_pos.0.x) * 0.5;
-        } else if boid_pos.0.x > game_config.game_width - margin {
-            boundary_force.x -= (boid_pos.0.x - (game_config.game_width - margin)) * 0.5;
+
+        if boid_pos.x < margin {
+            boundary_force.x += (margin - boid_pos.x) * 0.5;
+        } else if boid_pos.x > game_config.game_width - margin {
+            boundary_force.x -= (boid_pos.x - (game_config.game_width - margin)) * 0.5;
         }
-        
-        if boid_pos.0.y < margin {
-            boundary_force.y += (margin - boid_pos.0.y) * 0.5;
-        } else if boid_pos.0.y > game_config.game_height - margin {
-            boundary_force.y -= (boid_pos.0.y - (game_config.game_height - margin)) * 0.5;
+
+        if boid_pos.y < margin {
+            boundary_force.y += (margin - boid_pos.y) * 0.5;
+        } else if boid_pos.y > game_config.game_height - margin {
+            boundary_force.y -= (boid_pos.y - (game_config.game_height - margin)) * 0.5;
         }
-        
+
         boid_vel.0 += boundary_force * 0.1;
+
+        // Debug velocity changes
+        if *debug_timer < 0.1 && entity.index() == 1 {
+            // Debug first boid every 2 seconds
+            info!(
+                "🐦 Boid {:?}: pos=({:.1}, {:.1}) vel=({:.1}, {:.1}) steering=({:.1}, {:.1})",
+                entity, boid_pos.x, boid_pos.y, boid_vel.0.x, boid_vel.0.y, steering.x, steering.y
+            );
+        }
     }
 }
 
 #[derive(Resource)]
 struct StatusTimer(Timer);
 
-
 #[derive(Resource, Default)]
 struct GameState;
-

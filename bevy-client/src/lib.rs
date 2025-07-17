@@ -67,14 +67,11 @@ pub fn run() {
 
 /// Create Lightyear client configuration
 fn create_client_config() -> lightyear::prelude::client::ClientConfig {
-    info!("🔧 Creating client config for WebSocket connection...");
-
     let network_config = &*NETWORK_CONFIG;
     let server_addr: SocketAddr = network_config
         .server_addr
         .parse()
         .expect("Failed to parse server address");
-    info!("📡 Will connect to server: {}", server_addr);
 
     // Use WebSocket (no certificates needed!)
     let transport = ClientTransport::WebSocketClient { server_addr };
@@ -110,38 +107,60 @@ fn setup_scene(mut commands: Commands, _asset_server: Res<AssetServer>) {
     let game_config = &*GAME_CONFIG;
     commands.spawn((
         Camera2d,
-        Transform::from_xyz(game_config.game_width / 2.0, game_config.game_height / 2.0, 1000.0),
+        Transform::from_xyz(
+            game_config.game_width / 2.0,
+            game_config.game_height / 2.0,
+            1000.0,
+        ),
     ));
 
     // Add arena boundary visualization
     let boundary_color = Color::srgb(0.5, 0.5, 0.5);
     let boundary_width = 5.0;
-    
+
     // Top boundary
     commands.spawn((
-        Sprite::from_color(boundary_color, Vec2::new(game_config.game_width, boundary_width)),
-        Transform::from_xyz(game_config.game_width / 2.0, game_config.game_height - boundary_width / 2.0, 0.0),
-    ));
-    
-    // Bottom boundary
-    commands.spawn((
-        Sprite::from_color(boundary_color, Vec2::new(game_config.game_width, boundary_width)),
-        Transform::from_xyz(game_config.game_width / 2.0, boundary_width / 2.0, 0.0),
-    ));
-    
-    // Left boundary
-    commands.spawn((
-        Sprite::from_color(boundary_color, Vec2::new(boundary_width, game_config.game_height)),
-        Transform::from_xyz(boundary_width / 2.0, game_config.game_height / 2.0, 0.0),
-    ));
-    
-    // Right boundary
-    commands.spawn((
-        Sprite::from_color(boundary_color, Vec2::new(boundary_width, game_config.game_height)),
-        Transform::from_xyz(game_config.game_width - boundary_width / 2.0, game_config.game_height / 2.0, 0.0),
+        Sprite::from_color(
+            boundary_color,
+            Vec2::new(game_config.game_width, boundary_width),
+        ),
+        Transform::from_xyz(
+            game_config.game_width / 2.0,
+            game_config.game_height - boundary_width / 2.0,
+            0.0,
+        ),
     ));
 
-    info!("📷 Camera ready at center of {}x{} arena", game_config.game_width, game_config.game_height);
+    // Bottom boundary
+    commands.spawn((
+        Sprite::from_color(
+            boundary_color,
+            Vec2::new(game_config.game_width, boundary_width),
+        ),
+        Transform::from_xyz(game_config.game_width / 2.0, boundary_width / 2.0, 0.0),
+    ));
+
+    // Left boundary
+    commands.spawn((
+        Sprite::from_color(
+            boundary_color,
+            Vec2::new(boundary_width, game_config.game_height),
+        ),
+        Transform::from_xyz(boundary_width / 2.0, game_config.game_height / 2.0, 0.0),
+    ));
+
+    // Right boundary
+    commands.spawn((
+        Sprite::from_color(
+            boundary_color,
+            Vec2::new(boundary_width, game_config.game_height),
+        ),
+        Transform::from_xyz(
+            game_config.game_width - boundary_width / 2.0,
+            game_config.game_height / 2.0,
+            0.0,
+        ),
+    ));
 }
 
 /// Performance monitoring timer resource
@@ -169,11 +188,8 @@ fn performance_monitor(
 
 /// Connect to the game server
 fn connect_to_server(mut commands: Commands) {
-    info!("🌐 Initiating connection to server...");
-
     commands.queue(|world: &mut World| {
         world.connect_client();
-        info!("✅ Client connection initiated!");
     });
 }
 
@@ -224,14 +240,16 @@ fn render_networked_entities(
     // Add visual representation to networked obstacles
     for (entity, position, obstacle) in obstacles.iter() {
         commands.entity(entity).insert((
-            Sprite::from_color(Color::srgb(0.5, 0.3, 0.1), Vec2::new(obstacle.width, obstacle.height)), // Brown obstacles
+            Sprite::from_color(
+                Color::srgb(0.5, 0.3, 0.1),
+                Vec2::new(obstacle.width, obstacle.height),
+            ), // Brown obstacles
             Transform::from_translation(Vec3::new(position.x, position.y, 0.5)), // Slightly behind other entities
         ));
     }
 
     // Add visual representation to networked projectiles
     for (entity, position) in projectiles.iter() {
-        info!("🎯 CLIENT: Rendering projectile at ({:.1}, {:.1})", position.x, position.y);
         commands.entity(entity).insert((
             Sprite::from_color(Color::srgb(0.0, 1.0, 1.0), Vec2::new(6.0, 6.0)), // Cyan bullets, slightly larger
             Transform::from_translation(Vec3::new(position.x, position.y, 2.0)), // In front of other entities
@@ -249,8 +267,8 @@ fn sync_position_to_transform(mut query: Query<(&Position, &mut Transform), Chan
 
 /// Send player input to server
 fn send_player_input(
-    mut connection: ResMut<ConnectionManager>, 
-    keys: Res<ButtonInput<KeyCode>>, 
+    mut connection: ResMut<ConnectionManager>,
+    keys: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
@@ -258,11 +276,6 @@ fn send_player_input(
 ) {
     let mut movement = Vec2::ZERO;
     let fire = keys.pressed(KeyCode::Space) || mouse_buttons.pressed(MouseButton::Left);
-
-    // Debug fire input (reduced logging)
-    if fire && movement.length() == 0.0 { // Only log when not moving to reduce spam
-        info!("🔥 CLIENT: Fire button pressed");
-    }
 
     // Basic WASD movement
     if keys.pressed(KeyCode::KeyW) {
@@ -285,7 +298,7 @@ fn send_player_input(
 
     // Calculate aim direction from mouse position
     let mut aim = movement; // Fallback to movement direction
-    
+
     if let (Ok(window), Ok((camera, camera_transform))) = (windows.single(), cameras.single()) {
         if let Some(cursor_pos) = window.cursor_position() {
             // Convert cursor position to world coordinates
@@ -294,9 +307,9 @@ fn send_player_input(
                 if let Ok(player_pos) = players.single() {
                     // Calculate direction from player to mouse
                     let direction = (world_pos - player_pos.0).normalize_or_zero();
-                    if direction.length() > 0.1 { // Only use mouse aim if it's valid
+                    if direction.length() > 0.1 {
+                        // Only use mouse aim if it's valid
                         aim = direction;
-                        info!("🎯 CLIENT: Mouse aim to ({:.1}, {:.1})", world_pos.x, world_pos.y);
                     }
                 }
             }
@@ -304,7 +317,7 @@ fn send_player_input(
     }
 
     let input = PlayerInput::new(movement, aim, fire);
-    
+
     // Removed debug logs
 
     // Removed debug logs
@@ -323,15 +336,18 @@ fn debug_player_count(
     *timer += time.delta_secs();
     if *timer > 2.0 {
         *timer = 0.0;
-        info!("🔍 Total players: {} | Rendered players: {}", 
-            all_players.iter().count(), 
+        info!(
+            "🔍 Total players: {} | Rendered players: {}",
+            all_players.iter().count(),
             rendered_players.iter().count()
         );
-        
+
         // Show position info for each player
         for (player, position, transform) in all_players.iter() {
-            info!("🔍 Player {} - Position: ({:.1}, {:.1}) | Transform: ({:.1}, {:.1})", 
-                player.id, position.x, position.y, transform.translation.x, transform.translation.y);
+            info!(
+                "🔍 Player {} - Position: ({:.1}, {:.1}) | Transform: ({:.1}, {:.1})",
+                player.id, position.x, position.y, transform.translation.x, transform.translation.y
+            );
         }
     }
 }
@@ -343,36 +359,38 @@ struct ResetButton;
 /// Set up UI elements
 fn setup_ui(mut commands: Commands) {
     // Create a simple button
-    commands.spawn((
-        Button,
-        Node {
-            width: Val::Px(150.0),
-            height: Val::Px(50.0),
-            position_type: PositionType::Absolute,
-            left: Val::Px(10.0),
-            top: Val::Px(10.0),
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            ..default()
-        },
-        BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
-        ResetButton,
-    ))
-    .with_children(|parent| {
-        parent.spawn((
-            Text::new("Reset (R/Enter)"),
-            TextFont {
-                font_size: 20.0,
+    commands
+        .spawn((
+            Button,
+            Node {
+                width: Val::Px(150.0),
+                height: Val::Px(50.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(10.0),
+                top: Val::Px(10.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
                 ..default()
             },
-            TextColor(Color::srgb(0.9, 0.9, 0.9)),
-        ));
-    });
-    
+            BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
+            ResetButton,
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Text::new("Reset (R/Enter)"),
+                TextFont {
+                    font_size: 20.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.9, 0.9, 0.9)),
+            ));
+        });
+
     info!("🎮 UI setup complete - Press R/Enter or click button to reset AI players");
 }
 
 /// Handle button clicks and reset
+#[allow(clippy::type_complexity)]
 fn button_system(
     mut interaction_query: Query<
         (&Interaction, &mut BackgroundColor),
@@ -382,7 +400,7 @@ fn button_system(
     mut connection: ResMut<ConnectionManager>,
 ) {
     let mut should_reset = false;
-    
+
     for (interaction, mut color) in interaction_query.iter_mut() {
         match *interaction {
             Interaction::Pressed => {
@@ -397,19 +415,22 @@ fn button_system(
             }
         }
     }
-    
+
     // Also allow R key or Enter to reset
     if keyboard.just_pressed(KeyCode::KeyR) || keyboard.just_pressed(KeyCode::Enter) {
         should_reset = true;
     }
-    
+
     if should_reset {
         info!("🔄 Reset AI players requested - sending reset message to server");
-        
+
         // Send reset message to server
         let reset_message = ResetAIMessage;
-        info!("📤 CLIENT: About to send ResetAIMessage: {:?}", reset_message);
-        
+        info!(
+            "📤 CLIENT: About to send ResetAIMessage: {:?}",
+            reset_message
+        );
+
         match connection.send_message::<ReliableChannel, ResetAIMessage>(&reset_message) {
             Ok(_) => {
                 info!("✅ CLIENT: Successfully sent ResetAIMessage");
