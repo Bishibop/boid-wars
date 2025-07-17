@@ -6,10 +6,13 @@ use lightyear::server::message::ReceiveMessage;
 use std::net::SocketAddr;
 use tracing::info;
 
+pub mod config;
 pub mod despawn_utils;
 pub mod physics;
+pub mod pool;
 pub mod position_sync;
 use bevy_rapier2d::prelude::{Collider, ExternalForce, ExternalImpulse, RigidBody};
+use config::PhysicsConfig;
 use despawn_utils::SafeDespawnExt;
 use physics::{GameCollisionGroups, PhysicsPlugin, Ship, WeaponStats};
 use position_sync::{PositionSyncPlugin, SyncPosition};
@@ -167,7 +170,7 @@ fn spawn_boid_flock(commands: &mut Commands) {
             Replicate::default(),
             // Add physics components for collision
             RigidBody::Dynamic,
-            Collider::ball(physics::BOID_RADIUS), // Small boid collider
+            Collider::ball(physics::BOID_RADIUS), // Use constant
             GameCollisionGroups::boid(),
             bevy_rapier2d::prelude::ActiveEvents::COLLISION_EVENTS, // Enable collision detection
             Transform::from_xyz(x, y, 0.0),
@@ -245,7 +248,11 @@ fn handle_reset_ai_message(
 }
 
 // Handle new client connections
-fn handle_connections(mut commands: Commands, mut connections: EventReader<ConnectEvent>) {
+fn handle_connections(
+    mut commands: Commands,
+    mut connections: EventReader<ConnectEvent>,
+    physics_config: Res<PhysicsConfig>,
+) {
     let game_config = &*GAME_CONFIG;
 
     for event in connections.read() {
@@ -286,7 +293,10 @@ fn handle_connections(mut commands: Commands, mut connections: EventReader<Conne
         // Add physics body components
         commands.entity(player_entity).insert((
             RigidBody::Dynamic,
-            Collider::cuboid(5.0, 5.0), // Match 10x10 visual size
+            Collider::cuboid(
+                physics_config.player_collider_size,
+                physics_config.player_collider_size,
+            ),
             GameCollisionGroups::player(),
             physics::Velocity::zero(),
             ExternalForce::default(),

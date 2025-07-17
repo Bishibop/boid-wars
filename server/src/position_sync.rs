@@ -24,9 +24,7 @@ impl Plugin for PositionSyncPlugin {
         app.configure_sets(
             PostUpdate,
             (
-                SyncSet::PhysicsToNetwork
-                    .after(PhysicsSet::Writeback)
-                    .after(PhysicsSet::Writeback),
+                SyncSet::PhysicsToNetwork.after(bevy_rapier2d::plugin::PhysicsSet::Writeback),
                 SyncSet::DriftDetection.after(SyncSet::PhysicsToNetwork),
             ),
         );
@@ -34,13 +32,13 @@ impl Plugin for PositionSyncPlugin {
         // Core sync systems
         app.add_systems(
             PostUpdate,
-            ((
+            (
                 initial_position_sync,
                 sync_physics_to_network,
                 sync_velocity_to_network,
             )
                 .chain()
-                .in_set(SyncSet::PhysicsToNetwork),),
+                .in_set(SyncSet::PhysicsToNetwork),
         );
 
         // Debug and monitoring systems

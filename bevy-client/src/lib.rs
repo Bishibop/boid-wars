@@ -341,14 +341,6 @@ fn debug_player_count(
             all_players.iter().count(),
             rendered_players.iter().count()
         );
-
-        // Show position info for each player
-        for (player, position, transform) in all_players.iter() {
-            info!(
-                "🔍 Player {} - Position: ({:.1}, {:.1}) | Transform: ({:.1}, {:.1})",
-                player.id, position.x, position.y, transform.translation.x, transform.translation.y
-            );
-        }
     }
 }
 
@@ -385,8 +377,6 @@ fn setup_ui(mut commands: Commands) {
                 TextColor(Color::srgb(0.9, 0.9, 0.9)),
             ));
         });
-
-    info!("🎮 UI setup complete - Press R/Enter or click button to reset AI players");
 }
 
 /// Handle button clicks and reset
@@ -422,22 +412,10 @@ fn button_system(
     }
 
     if should_reset {
-        info!("🔄 Reset AI players requested - sending reset message to server");
-
         // Send reset message to server
         let reset_message = ResetAIMessage;
-        info!(
-            "📤 CLIENT: About to send ResetAIMessage: {:?}",
-            reset_message
-        );
-
-        match connection.send_message::<ReliableChannel, ResetAIMessage>(&reset_message) {
-            Ok(_) => {
-                info!("✅ CLIENT: Successfully sent ResetAIMessage");
-            }
-            Err(e) => {
-                info!("⚠️ CLIENT: Failed to send reset message: {:?}", e);
-            }
+        if let Err(e) = connection.send_message::<ReliableChannel, ResetAIMessage>(&reset_message) {
+            warn!("Failed to send reset message: {:?}", e);
         }
     }
 }

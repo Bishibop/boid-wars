@@ -1,3 +1,5 @@
+use crate::config::{MonitoringConfig, PhysicsConfig};
+use crate::pool::{BoundedPool, PooledEntity};
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use boid_wars_shared;
@@ -5,12 +7,16 @@ use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 use std::time::{Duration, Instant};
 
-// Constants
-pub const BOID_RADIUS: f32 = 4.0;
+// Re-export for backward compatibility
+pub const BOID_RADIUS: f32 = 4.0; // This is duplicated in PhysicsConfig
 
 /// Marker component to indicate entity is being despawned
 #[derive(Component)]
 pub struct Despawning;
+
+/// Component to track pooled projectiles
+#[derive(Component)]
+pub struct PooledProjectile(PooledEntity);
 
 // Re-export for convenience
 pub use bevy_rapier2d::prelude::{
@@ -18,41 +24,86 @@ pub use bevy_rapier2d::prelude::{
     RapierDebugRenderPlugin, RapierPhysicsPlugin, RigidBody, Sensor, Velocity,
 };
 
+/// System sets for explicit ordering
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PhysicsSet {
+    /// Input collection and processing
+    Input,
+    /// AI decision making
+    AI,
+    /// Movement and physics updates
+    Movement,
+    /// Weapon systems and shooting
+    Combat,
+    /// Collision detection and response
+    Collision,
+    /// Resource management (pooling, cleanup)
+    ResourceManagement,
+    /// Network synchronization
+    NetworkSync,
+}
+
 /// Physics plugin that sets up Rapier2D and physics systems
 pub struct PhysicsPlugin;
 
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
+        // Initialize configuration
+        let physics_config = PhysicsConfig::default();
+        let pool_size = physics_config.projectile_pool_size;
+        let collider_radius = physics_config.projectile_collider_radius;
+
         app
             // Add Rapier2D physics plugin with no gravity for top-down space game
             .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
             .add_plugins(RapierDebugRenderPlugin::default())
-            // Physics configuration is now handled by the plugin directly
+            // Add configuration resources
+            .insert_resource(physics_config)
+            .init_resource::<MonitoringConfig>()
             .init_resource::<ArenaConfig>()
-            .init_resource::<ProjectilePool>()
+            .insert_resource(ProjectilePool::new(
+                ProjectileTemplate { collider_radius },
+                pool_size,
+            ))
             .add_systems(Startup, (setup_arena, setup_projectile_pool).chain())
-            .add_systems(Update, shooting_system) // Move to Update for responsive input
+            // Configure system sets with explicit ordering
+            .configure_sets(
+                FixedUpdate,
+                (
+                    PhysicsSet::Input,
+                    PhysicsSet::AI.after(PhysicsSet::Input),
+                    PhysicsSet::Movement.after(PhysicsSet::AI),
+                    PhysicsSet::Combat.after(PhysicsSet::Movement),
+                    PhysicsSet::Collision.after(PhysicsSet::Combat),
+                    PhysicsSet::ResourceManagement.after(PhysicsSet::Collision),
+                    PhysicsSet::NetworkSync.after(PhysicsSet::ResourceManagement),
+                )
+                    .chain()
+                    .after(bevy_rapier2d::plugin::PhysicsSet::SyncBackend),
+            )
+            // Add systems to appropriate sets
             .add_systems(
                 FixedUpdate,
                 (
-                    // Player and AI systems
-                    (
-                        ai_player_system,
-                        player_input_system,
-                        player_movement_system,
-                    )
-                        .chain(),
-                    // Projectile lifecycle systems
-                    (projectile_system, collision_system),
-                    // Pool management before cleanup
-                    return_projectiles_to_pool,
-                    cleanup_system,
-                    // Network sync after all physics updates
-                    (sync_physics_to_network, sync_projectile_physics_to_network),
-                )
-                    .chain(),
+                    player_input_system.in_set(PhysicsSet::Input),
+                    ai_player_system.in_set(PhysicsSet::AI),
+                    player_movement_system.in_set(PhysicsSet::Movement),
+                    projectile_system.in_set(PhysicsSet::Movement),
+                    collision_system.in_set(PhysicsSet::Collision),
+                    return_projectiles_to_pool.in_set(PhysicsSet::ResourceManagement),
+                    cleanup_system.in_set(PhysicsSet::ResourceManagement),
+                    (sync_physics_to_network, sync_projectile_physics_to_network)
+                        .in_set(PhysicsSet::NetworkSync),
+                ),
             )
-            .add_systems(Update, monitor_pool_health);
+            // Combat system runs in Update for responsive shooting
+            .add_systems(
+                Update,
+                (
+                    shooting_system.in_set(PhysicsSet::Combat),
+                    monitor_pool_health,
+                ),
+            );
     }
 }
 
@@ -64,13 +115,14 @@ pub struct ArenaConfig {
     pub wall_thickness: f32,
 }
 
-impl Default for ArenaConfig {
-    fn default() -> Self {
+impl FromWorld for ArenaConfig {
+    fn from_world(world: &mut World) -> Self {
         let game_config = &*boid_wars_shared::GAME_CONFIG;
+        let physics_config = world.resource::<PhysicsConfig>();
         Self {
             width: game_config.game_width,
             height: game_config.game_height,
-            wall_thickness: 25.0, // Scaled down proportionally
+            wall_thickness: physics_config.arena_wall_thickness,
         }
     }
 }
@@ -146,10 +198,10 @@ impl Default for Player {
             player_id: 0,
             health: 100.0,
             max_health: 100.0,
-            thrust_force: 50000.0, // High thrust for responsive movement
+            thrust_force: 50000.0,
             turn_rate: 5.0,
             forward_speed_multiplier: 1.5,
-            weapon_cooldown: Timer::new(Duration::from_millis(100), TimerMode::Once),
+            weapon_cooldown: Timer::new(Duration::from_millis(250), TimerMode::Once),
         }
     }
 }
@@ -207,7 +259,7 @@ impl Default for Ship {
     fn default() -> Self {
         Self {
             facing_direction: Vec2::Y,
-            max_speed: 800.0, // High max speed for responsive movement
+            max_speed: 800.0,
             acceleration: 800.0,
             deceleration: 400.0,
             angular_velocity: 0.0,
@@ -219,7 +271,7 @@ impl Default for Ship {
 #[derive(Component, Clone, Debug)]
 pub struct Projectile {
     pub damage: f32,
-    pub owner: Entity,
+    pub owner: Option<Entity>,
     pub projectile_type: ProjectileType,
     pub lifetime: Timer,
     pub speed: f32,
@@ -255,7 +307,7 @@ impl Default for WeaponStats {
     fn default() -> Self {
         Self {
             damage: 25.0,
-            fire_rate: 4.0, // Shots per second
+            fire_rate: 4.0,
             projectile_speed: 600.0,
             projectile_lifetime: Duration::from_secs(3),
             spread: 0.0,
@@ -263,74 +315,44 @@ impl Default for WeaponStats {
     }
 }
 
-/// Object pool for projectiles to avoid allocation/deallocation
-#[derive(Resource)]
-pub struct ProjectilePool {
-    available: Vec<Entity>,
-    active: std::collections::HashSet<Entity>,
-    _pool_size: usize,
-}
+/// Type alias for our projectile pool
+pub type ProjectilePool = BoundedPool<ProjectileTemplate>;
 
-impl Default for ProjectilePool {
-    fn default() -> Self {
-        Self {
-            available: Vec::with_capacity(500),
-            active: std::collections::HashSet::with_capacity(500),
-            _pool_size: 500,
-        }
-    }
-}
-
-impl ProjectilePool {
-    pub fn get_projectile(&mut self) -> Option<Entity> {
-        if let Some(entity) = self.available.pop() {
-            self.active.insert(entity);
-            Some(entity)
-        } else {
-            None
-        }
-    }
-
-    pub fn return_projectile(&mut self, entity: Entity) {
-        if self.active.remove(&entity) {
-            self.available.push(entity);
-        }
-    }
+/// Template for spawning projectiles
+#[derive(Component, Clone)]
+pub struct ProjectileTemplate {
+    pub collider_radius: f32,
 }
 
 /// Setup projectile pool with pre-spawned projectiles
-fn setup_projectile_pool(mut commands: Commands, mut pool: ResMut<ProjectilePool>) {
-    info!("[POOL] Pre-spawning 100 projectiles for pool");
+fn setup_projectile_pool(
+    mut commands: Commands,
+    mut pool: ResMut<ProjectilePool>,
+    config: Res<PhysicsConfig>,
+) {
+    // Pre-spawn initial batch of projectiles
+    pool.pre_spawn(
+        &mut commands,
+        config.projectile_pool_initial_spawn,
+        |cmds, template| {
+            let mut timer = Timer::from_seconds(1.0, TimerMode::Once);
+            timer.pause();
 
-    // Create a dummy entity to use as placeholder owner
-    let dummy_entity = commands
-        .spawn((
-            Name::new("Projectile Pool Dummy Owner"),
-            Transform::from_translation(Vec3::new(-2000.0, -2000.0, -200.0)), // Far off-screen
-        ))
-        .id();
-
-    // Pre-spawn projectiles for the pool
-    for i in 0..100 {
-        let mut timer = Timer::from_seconds(1.0, TimerMode::Once);
-        timer.pause(); // Start paused
-
-        let entity = commands
-            .spawn((
+            cmds.spawn((
                 // Core components that won't change
                 RigidBody::Dynamic,
-                Collider::ball(2.0),
+                Collider::ball(template.collider_radius),
                 Sensor,
                 GameCollisionGroups::projectile(),
                 bevy_rapier2d::dynamics::GravityScale(0.0),
-                Name::new(format!("Pooled Projectile {i}")),
+                Name::new("Pooled Projectile"),
                 // Position far off-screen
-                Transform::from_translation(Vec3::new(-1000.0, -1000.0, -100.0)),
+                Transform::from_translation(config.projectile_pool_offscreen_position),
                 GlobalTransform::default(),
                 // Placeholder components that will be updated when used
                 Projectile {
                     damage: 0.0,
-                    owner: dummy_entity, // Use dummy entity instead of PLACEHOLDER
+                    owner: None, // No owner for pooled projectiles
                     projectile_type: ProjectileType::Basic,
                     lifetime: timer,
                     speed: 0.0,
@@ -341,16 +363,15 @@ fn setup_projectile_pool(mut commands: Commands, mut pool: ResMut<ProjectilePool
                     max_lifetime: Duration::from_secs(1),
                 },
                 Velocity::zero(),
+                ProjectileTemplate {
+                    collider_radius: template.collider_radius,
+                },
             ))
-            .id();
-
-        pool.available.push(entity);
-    }
-
-    info!(
-        "[POOL] Projectile pool initialized with {} projectiles",
-        pool.available.len()
+            .id()
+        },
     );
+
+    let _status = pool.status();
 }
 
 /// Setup the arena with walls - using top-left origin like network coordinates
@@ -418,6 +439,7 @@ fn ai_player_system(
     other_players: Query<&Transform, (With<Player>, Without<AIPlayer>)>,
     time: Res<Time>,
     arena_config: Res<ArenaConfig>,
+    physics_config: Res<PhysicsConfig>,
 ) {
     for (mut input, mut ai, transform) in ai_players.iter_mut() {
         ai.behavior_timer += time.delta_secs();
@@ -428,8 +450,8 @@ fn ai_player_system(
         match ai.ai_type {
             AIType::Circler => {
                 // Move in a circle around starting position
-                let circle_radius = 100.0;
-                let circle_speed = 1.0; // radians per second
+                let circle_radius = physics_config.ai_circle_radius;
+                let circle_speed = physics_config.ai_circle_speed;
 
                 let center_x = 100.0; // Starting position
                 let center_y = 100.0;
@@ -500,7 +522,8 @@ fn ai_player_system(
 
                     // Shoot at target
                     let distance = pos.distance(target_pos);
-                    input.shooting = distance < 300.0 && ai.shoot_timer > 0.3;
+                    input.shooting =
+                        distance < physics_config.ai_chase_shoot_distance && ai.shoot_timer > 0.3;
                     if input.shooting {
                         ai.shoot_timer = 0.0;
                     }
@@ -571,12 +594,12 @@ fn player_input_system(
 fn player_movement_system(
     mut player_query: Query<(&Player, &Ship, &mut Velocity, &Transform), With<Player>>,
     _time: Res<Time>,
+    config: Res<PhysicsConfig>,
 ) {
     for (_player, ship, mut velocity, _transform) in player_query.iter_mut() {
         // Apply damping for momentum feel
-        let damping_factor = 0.98; // Higher value = less damping = faster movement
-        velocity.linvel *= damping_factor;
-        velocity.angvel *= damping_factor;
+        velocity.linvel *= config.player_damping_factor;
+        velocity.angvel *= config.player_damping_factor;
 
         // Clamp max speed
         if velocity.linvel.length() > ship.max_speed {
@@ -591,69 +614,32 @@ fn shooting_system(
     mut player_query: Query<(Entity, &PlayerInput, &mut Player, &WeaponStats, &Transform)>,
     mut pool: ResMut<ProjectilePool>,
     time: Res<Time>,
+    config: Res<PhysicsConfig>,
 ) {
-    // Debug: Log all players and their input state
-    let player_count = player_query.iter().count();
-    info!("🔍 SHOOTING: Processing {} players", player_count);
-
     for (entity, input, mut player, weapon, transform) in player_query.iter_mut() {
         player.weapon_cooldown.tick(time.delta());
 
-        // Debug each player's state
-        info!(
-            "🔍 Player {} - shooting={} cooldown_finished={}",
-            player.player_id,
-            input.shooting,
-            player.weapon_cooldown.finished()
-        );
-
         if input.shooting && player.weapon_cooldown.finished() {
-            info!(
-                "🚀 PHYSICS: Player {} shooting! Spawning projectile",
-                player.player_id
-            );
             // Reset cooldown
             player.weapon_cooldown.reset();
 
             // Spawn projectile - offset in the aim direction to avoid self-collision
-            let spawn_offset = 15.0; // Distance from player center
+            let spawn_offset = config.projectile_spawn_offset;
             let projectile_spawn_pos =
                 transform.translation.truncate() + input.aim_direction * spawn_offset; // Spawn in aim direction
 
             let projectile_velocity = input.aim_direction * weapon.projectile_speed;
 
-            // Debug velocity calculation
-            info!(
-                "🎯 PHYSICS: Player {} aim_direction=({:.1}, {:.1}) projectile_speed={:.1}",
-                player.player_id,
-                input.aim_direction.x,
-                input.aim_direction.y,
-                weapon.projectile_speed
-            );
-
-            // Monitor pool size and warn if running low
-            if pool.available.len() < 10 {
-                warn!(
-                    "[POOL] Pool running low: {} projectiles available (active: {})",
-                    pool.available.len(),
-                    pool.active.len()
-                );
-            }
-
             // Try to get a projectile from the pool
-            let projectile_entity = if let Some(pooled_entity) = pool.get_projectile() {
-                info!(
-                    "[POOL] Reusing projectile {:?} from pool ({} available)",
-                    pooled_entity,
-                    pool.available.len()
-                );
+            let projectile_entity = if let Some(pooled_handle) = pool.acquire() {
+                let _status = pool.status();
 
                 // Update existing projectile components
-                commands.entity(pooled_entity).insert((
+                commands.entity(pooled_handle.entity).insert((
                     // Update projectile data
                     Projectile {
                         damage: weapon.damage,
-                        owner: entity, // Use actual player entity
+                        owner: Some(entity), // Use actual player entity
                         projectile_type: ProjectileType::Basic,
                         lifetime: {
                             let mut timer = Timer::new(weapon.projectile_lifetime, TimerMode::Once);
@@ -674,7 +660,12 @@ fn shooting_system(
                     ActiveEvents::COLLISION_EVENTS,
                 ));
 
-                pooled_entity
+                // Store the pooled handle for later release
+                commands
+                    .entity(pooled_handle.entity)
+                    .insert(PooledProjectile(pooled_handle));
+
+                pooled_handle.entity
             } else {
                 warn!("[POOL] Pool exhausted! Spawning new projectile (this may cause performance issues)");
 
@@ -684,7 +675,7 @@ fn shooting_system(
                         // Physics projectile component (server-only)
                         Projectile {
                             damage: weapon.damage,
-                            owner: entity, // Use actual player entity
+                            owner: Some(entity), // Use actual player entity
                             projectile_type: ProjectileType::Basic,
                             lifetime: Timer::new(weapon.projectile_lifetime, TimerMode::Once),
                             speed: weapon.projectile_speed,
@@ -696,8 +687,8 @@ fn shooting_system(
                         },
                         // Rapier2D components
                         RigidBody::Dynamic,
-                        Collider::ball(2.0), // Small bullet collider
-                        Sensor,              // Make it a sensor so it doesn't bounce
+                        Collider::ball(config.projectile_collider_radius),
+                        Sensor, // Make it a sensor so it doesn't bounce
                         GameCollisionGroups::projectile(),
                         ActiveEvents::COLLISION_EVENTS, // Enable collision events
                         Velocity::linear(projectile_velocity),
@@ -721,14 +712,6 @@ fn shooting_system(
                 boid_wars_shared::Velocity(projectile_velocity),
                 lightyear::prelude::server::Replicate::default(),
             ));
-
-            info!(
-                "✅ PHYSICS: Projectile spawned at ({:.1}, {:.1}) with velocity ({:.1}, {:.1})",
-                projectile_spawn_pos.x,
-                projectile_spawn_pos.y,
-                projectile_velocity.x,
-                projectile_velocity.y
-            );
         }
     }
 }
@@ -743,22 +726,13 @@ fn projectile_system(
 ) {
     *debug_timer += time.delta_secs();
 
-    let active_projectiles = projectile_query
+    let _active_projectiles = projectile_query
         .iter()
         .filter(|(_, _, _, transform)| {
             let pos = transform.translation.truncate();
             pos.x > -500.0 && pos.y > -500.0 // Only count projectiles not in pool area
         })
         .count();
-
-    if *debug_timer > 5.0 {
-        info!(
-            "🎯 PROJECTILE SYSTEM: {} total projectiles, {} active",
-            projectile_query.iter().count(),
-            active_projectiles
-        );
-        *debug_timer = 0.0;
-    }
 
     for (entity, mut projectile, _physics, transform) in projectile_query.iter_mut() {
         // Skip pooled projectiles (they're positioned off-screen)
@@ -797,10 +771,6 @@ fn collision_system(
             // Check if entity1 is a projectile
             if let Ok(projectile) = projectile_query.get(*entity1) {
                 // Projectile hit something - mark for despawn (will be returned to pool)
-                info!(
-                    "[COLLISION] Projectile {:?} hit something, marking for despawn",
-                    entity1
-                );
                 commands.entity(*entity1).insert(Despawning);
 
                 // Check what it hit
@@ -817,10 +787,6 @@ fn collision_system(
             // Check if entity2 is a projectile (reverse collision)
             if let Ok(projectile) = projectile_query.get(*entity2) {
                 // Projectile hit something - mark for despawn (will be returned to pool)
-                info!(
-                    "[COLLISION] Projectile {:?} hit something, marking for despawn",
-                    entity2
-                );
                 commands.entity(*entity2).insert(Despawning);
 
                 // Check what it hit
@@ -840,8 +806,7 @@ fn collision_system(
 /// Handle player death
 fn handle_player_death(_commands: &mut Commands, _player_entity: Entity) {
     // TODO: Implement respawn logic or game over state
-    // For now, just log the death
-    info!("Player died!");
+    // TODO: Implement respawn logic
 }
 
 /// System to return projectiles to pool instead of despawning
@@ -855,48 +820,66 @@ fn return_projectiles_to_pool(
             &mut Transform,
             &mut Velocity,
             &mut Projectile,
+            Option<&PooledProjectile>,
             Option<&Despawning>,
         ),
         With<Projectile>,
     >,
+    config: Res<PhysicsConfig>,
 ) {
-    for (entity, mut transform, mut velocity, mut projectile, despawning) in projectiles.iter_mut()
+    for (entity, mut transform, mut velocity, mut projectile, pooled, despawning) in
+        projectiles.iter_mut()
     {
         // Check if this projectile should be returned to pool
         let should_return = despawning.is_some() || projectile.lifetime.finished();
 
         if should_return {
-            // Only log occasionally to reduce spam
-            if entity.index() % 10 == 0 {
-                info!("[POOL] Returning projectile {:?} to pool", entity);
-            }
-
-            // Reset projectile state
-            transform.translation = Vec3::new(-1000.0, -1000.0, -100.0); // Move far off-screen
-            velocity.linvel = Vec2::ZERO;
-            velocity.angvel = 0.0;
-            projectile.lifetime.reset();
-            projectile.lifetime.pause(); // Pause the timer so it doesn't tick while pooled
-
-            // Remove network components to stop replication (with error handling)
-            if let Ok(mut entity_commands) = commands.get_entity(entity) {
-                entity_commands.remove::<boid_wars_shared::Projectile>();
-                entity_commands.remove::<boid_wars_shared::Position>();
-                entity_commands.remove::<boid_wars_shared::Velocity>();
-                entity_commands.remove::<lightyear::prelude::server::Replicate>();
-
-                // Remove Despawning marker if present
-                if despawning.is_some() {
-                    entity_commands.remove::<Despawning>();
+            // Only process pooled projectiles
+            if let Some(PooledProjectile(pooled_handle)) = pooled {
+                // Validate the handle is still valid
+                if !pool.is_valid(*pooled_handle) {
+                    warn!(
+                        "[POOL] Invalid pooled handle for entity {:?}, removing from world",
+                        entity
+                    );
+                    commands.entity(entity).despawn();
+                    continue;
                 }
 
-                // Make sure it stays a sensor
-                entity_commands.insert(Sensor);
+                // Reset projectile state
+                transform.translation = config.projectile_pool_offscreen_position;
+                velocity.linvel = Vec2::ZERO;
+                velocity.angvel = 0.0;
+                projectile.lifetime.reset();
+                projectile.lifetime.pause(); // Pause the timer so it doesn't tick while pooled
 
-                // Return to pool
-                pool.return_projectile(entity);
-            } else {
-                warn!("[POOL] Failed to return projectile {:?} to pool - entity may have been despawned", entity);
+                // Remove network components to stop replication (with error handling)
+                if let Ok(mut entity_commands) = commands.get_entity(entity) {
+                    entity_commands.remove::<boid_wars_shared::Projectile>();
+                    entity_commands.remove::<boid_wars_shared::Position>();
+                    entity_commands.remove::<boid_wars_shared::Velocity>();
+                    entity_commands.remove::<lightyear::prelude::server::Replicate>();
+
+                    // Remove Despawning marker if present
+                    if despawning.is_some() {
+                        entity_commands.remove::<Despawning>();
+                    }
+
+                    // Make sure it stays a sensor
+                    entity_commands.insert(Sensor);
+
+                    // Return to pool
+                    if pool.release(*pooled_handle) {
+                        // Successfully returned
+                    } else {
+                        warn!("[POOL] Failed to return projectile {:?} to pool - possible double-release", entity);
+                    }
+                } else {
+                    warn!("[POOL] Failed to return projectile {:?} to pool - entity may have been despawned", entity);
+                }
+            } else if despawning.is_some() {
+                // Non-pooled projectile marked for despawn
+                commands.entity(entity).despawn();
             }
         }
     }
@@ -920,22 +903,20 @@ fn cleanup_system(
 }
 
 /// System to monitor pool health and performance
-fn monitor_pool_health(pool: Res<ProjectilePool>, mut debug_timer: Local<f32>, time: Res<Time>) {
+fn monitor_pool_health(
+    pool: Res<ProjectilePool>,
+    mut debug_timer: Local<f32>,
+    time: Res<Time>,
+    config: Res<MonitoringConfig>,
+) {
     *debug_timer += time.delta_secs();
 
-    // Log pool statistics every 10 seconds
-    if *debug_timer > 10.0 {
-        let available = pool.available.len();
-        let active = pool.active.len();
-        let total = available + active;
-        let utilization = (active as f32 / total as f32) * 100.0;
+    // Log pool statistics at configured interval
+    if *debug_timer > config.pool_health_check_interval {
+        let status = pool.status();
+        let utilization = (status.active as f32 / status.total.max(1) as f32) * 100.0;
 
-        info!(
-            "[POOL] Health check - Available: {}, Active: {}, Utilization: {:.1}%",
-            available, active, utilization
-        );
-
-        if utilization > 80.0 {
+        if utilization > config.pool_high_utilization_threshold {
             warn!("[POOL] High utilization detected! Consider increasing pool size or reducing projectile spawn rate");
         }
 

@@ -9,7 +9,6 @@ pub trait SafeDespawnExt {
 impl<'w, 's> SafeDespawnExt for Commands<'w, 's> {
     /// Safely despawn an entity without panicking if it doesn't exist
     fn safe_despawn(&mut self, entity: Entity) {
-        info!("[DESPAWN] Marking entity {:?} for despawn", entity);
         // Get a mutable reference to the entity commands
         if let Ok(mut entity_commands) = self.get_entity(entity) {
             // First mark it as despawning to prevent double-despawn attempts
