@@ -36,48 +36,32 @@
             z-index: 10;
         }
         
-        #info {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            color: white;
-            font-size: 12px;
-            z-index: 10;
-            background: rgba(0,0,0,0.7);
-            padding: 10px;
-            border-radius: 5px;
-            max-width: 300px;
-        }
-        
-        #performance {
+        #connection-status {
             position: absolute;
             top: 10px;
             right: 10px;
             color: white;
-            font-size: 12px;
+            font-size: 14px;
             z-index: 10;
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.8);
             padding: 10px;
             border-radius: 5px;
+            border: 1px solid #333;
+        }
+        
+        #connection-status #status {
+            font-weight: bold;
+            color: #00ff00;
         }
     </style>
 </head>
 <body>
     <div id="game-container">
         <div id="loading">Loading Boid Wars...</div>
-        <div id="info">
-            <h3>Bevy WASM Performance Test</h3>
-            <p><strong>1000 entities</strong> with movement and collision</p>
-            <p>Check browser console for FPS reports</p>
-            <p>Target: 60 FPS with good performance</p>
+        <div id="connection-status">
+            <p>Connection Status: <span id="status">Connecting...</span></p>
         </div>
-        <div id="performance">
-            <h4>Performance Metrics</h4>
-            <p id="fps">FPS: Loading...</p>
-            <p id="entities">Entities: 1000</p>
-            <p id="bundle-size">Bundle: 62MB (debug)</p>
-        </div>
-        <canvas id="bevy-canvas" width="800" height="600"></canvas>
+        <canvas id="bevy-canvas" width="1200" height="900"></canvas>
     </div>
 
     <script type="module">
@@ -85,7 +69,7 @@
         
         async function main() {
             try {
-                console.log("🚀 Loading Bevy WASM client...");
+                console.log("🚀 Loading Boid Wars WASM client...");
                 
                 // Initialize the WASM module
                 await init();
@@ -95,14 +79,24 @@
                 // Hide loading message
                 document.getElementById('loading').style.display = 'none';
                 
+                // Update connection status
+                document.getElementById('status').textContent = 'Loading...';
+                
                 // Start the Bevy app
                 run();
                 
-                console.log("🎮 Bevy app started");
+                console.log("🎮 Boid Wars started! Use WASD to move, mouse to aim, click to shoot.");
+                
+                // Update status after app starts
+                setTimeout(() => {
+                    document.getElementById('status').textContent = 'Connected';
+                }, 1000);
                 
             } catch (error) {
-                console.error("❌ Failed to load Bevy WASM client:", error);
+                console.error("❌ Failed to load Boid Wars client:", error);
                 document.getElementById('loading').innerText = 'Failed to load: ' + error.message;
+                document.getElementById('status').textContent = 'Connection Failed';
+                document.getElementById('status').style.color = '#ff0000';
             }
         }
         

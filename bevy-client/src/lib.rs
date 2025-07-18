@@ -34,18 +34,22 @@ pub fn run() {
 
     let mut app = App::new();
 
-    // Add Bevy plugins optimized for WASM (disable audio to avoid browser warnings)
+    // Add Bevy plugins optimized for WASM
     app.add_plugins(
         DefaultPlugins
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Boid Wars - Bevy WASM Client".into(),
-                    resolution: (800.0, 600.0).into(),
+                    resolution: (1200.0, 900.0).into(),
                     canvas: Some("#bevy-canvas".into()),
                     fit_canvas_to_parent: true,
                     prevent_default_event_handling: true,
                     ..default()
                 }),
+                ..default()
+            })
+            .set(bevy::render::RenderPlugin {
+                synchronous_pipeline_compilation: true,
                 ..default()
             })
             .disable::<bevy::audio::AudioPlugin>(),
@@ -92,9 +96,11 @@ pub fn run() {
 fn create_client_config() -> lightyear::prelude::client::ClientConfig {
     let network_config = &*NETWORK_CONFIG;
     let server_addr: SocketAddr = network_config
-        .server_addr
+        .client_connect_addr
         .parse()
-        .expect("Failed to parse server address");
+        .expect("Failed to parse client connect address");
+
+    info!("🔗 Client will connect to: {}", server_addr);
 
     // Use WebSocket (no certificates needed!)
     let transport = ClientTransport::WebSocketClient { server_addr };
@@ -242,8 +248,10 @@ fn performance_monitor(
 
 /// Connect to the game server
 fn connect_to_server(mut commands: Commands) {
+    info!("🚀 Attempting to connect to server...");
     commands.queue(|world: &mut World| {
         world.connect_client();
+        info!("📡 Connection request sent to server");
     });
 }
 

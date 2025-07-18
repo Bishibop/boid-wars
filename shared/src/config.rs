@@ -3,7 +3,8 @@ use std::env;
 /// Network configuration shared between client and server
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
-    pub server_addr: String,
+    pub server_bind_addr: String,  // Server binds to this address
+    pub client_connect_addr: String, // Client connects to this address
     pub protocol_id: u64,
     pub dev_key: [u8; 32],
 }
@@ -11,8 +12,10 @@ pub struct NetworkConfig {
 impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
-            server_addr: env::var("BOID_WARS_SERVER_ADDR")
-                .unwrap_or_else(|_| "127.0.0.1:5001".to_string()),
+            server_bind_addr: env::var("BOID_WARS_SERVER_BIND_ADDR")
+                .unwrap_or_else(|_| "0.0.0.0:8080".to_string()),
+            client_connect_addr: env::var("BOID_WARS_CLIENT_CONNECT_ADDR")
+                .unwrap_or_else(|_| "127.0.0.1:8080".to_string()),
             protocol_id: env::var("BOID_WARS_PROTOCOL_ID")
                 .unwrap_or_else(|_| "12345".to_string())
                 .parse()
@@ -38,13 +41,13 @@ impl Default for GameConfig {
     fn default() -> Self {
         Self {
             game_width: env::var("BOID_WARS_GAME_WIDTH")
-                .unwrap_or_else(|_| "800.0".to_string())
+                .unwrap_or_else(|_| "1200.0".to_string())
                 .parse()
-                .unwrap_or(800.0),
+                .unwrap_or(1200.0),
             game_height: env::var("BOID_WARS_GAME_HEIGHT")
-                .unwrap_or_else(|_| "600.0".to_string())
+                .unwrap_or_else(|_| "900.0".to_string())
                 .parse()
-                .unwrap_or(600.0),
+                .unwrap_or(900.0),
             player_speed: env::var("BOID_WARS_PLAYER_SPEED")
                 .unwrap_or_else(|_| "200.0".to_string())
                 .parse()
@@ -58,13 +61,13 @@ impl Default for GameConfig {
                 .parse()
                 .unwrap_or(100.0),
             spawn_x: env::var("BOID_WARS_SPAWN_X")
-                .unwrap_or_else(|_| "400.0".to_string())
+                .unwrap_or_else(|_| "600.0".to_string())
                 .parse()
-                .unwrap_or(400.0),
+                .unwrap_or(600.0),
             spawn_y: env::var("BOID_WARS_SPAWN_Y")
-                .unwrap_or_else(|_| "300.0".to_string())
+                .unwrap_or_else(|_| "450.0".to_string())
                 .parse()
-                .unwrap_or(300.0),
+                .unwrap_or(450.0),
         }
     }
 }

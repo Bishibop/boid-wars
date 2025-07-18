@@ -12,6 +12,7 @@ pub mod config;
 pub mod debug_ui;
 pub mod despawn_utils;
 pub mod flocking;
+pub mod groups;
 pub mod physics;
 pub mod pool;
 pub mod position_sync;
@@ -32,9 +33,9 @@ fn main() {
 
     // Configure server address
     let server_addr: SocketAddr = network_config
-        .server_addr
+        .server_bind_addr
         .parse()
-        .expect("Failed to parse server address");
+        .expect("Failed to parse server bind address");
 
     info!(
         "Server listening on {} | Game area: {}x{}",
@@ -59,7 +60,8 @@ fn main() {
         .add_plugins(ProtocolPlugin)
         .add_plugins(PhysicsPlugin)
         .add_plugins(PositionSyncPlugin)
-        .add_plugins(FlockingPlugin)
+        // .add_plugins(FlockingPlugin)  // DISABLED - using group system instead
+        .add_plugins(groups::BoidGroupPlugin)
         .add_plugins(BoidWarsServerPlugin)
         .run();
 }
@@ -142,61 +144,69 @@ fn spawn_collision_objects_delayed(
     }
 }
 
-// Helper function to spawn peaceful boids
+// Helper function to spawn peaceful boids using the group system
 fn spawn_boid_flock(commands: &mut Commands) {
     let game_config = &*GAME_CONFIG;
-
-    // Spawn 30 boids scattered around the arena
-    for i in 0..30 {
-        let boid_id = 100 + i; // Use IDs 100-129
-
-        // Scatter them around the arena with some randomness
-        let base_x = ((i % 6) as f32 * game_config.game_width / 6.0) + 50.0;
-        let base_y = ((i / 6) as f32 * game_config.game_height / 5.0) + 50.0;
-
-        // Add some random offset to avoid perfect grid
-        let x = base_x + (rand::random::<f32>() - 0.5) * 60.0;
-        let y = base_y + (rand::random::<f32>() - 0.5) * 60.0;
-
-        // Clamp to ensure they spawn within bounds
-        let x = x.clamp(20.0, game_config.game_width - 20.0);
-        let y = y.clamp(20.0, game_config.game_height - 20.0);
-
-        // Create boid with random initial velocity
-        let mut bundle = BoidBundle::new(boid_id, x, y);
-        let angle = rand::random::<f32>() * std::f32::consts::TAU;
-        let speed = 100.0; // Initial speed
-        bundle.velocity = boid_wars_shared::Velocity::new(angle.cos() * speed, angle.sin() * speed);
-
-        // Set boid health to 20 (standard boid)
-        bundle.health = boid_wars_shared::Health {
-            current: 20.0,
-            max: 20.0,
-        };
-
-        commands.spawn((
-            bundle,
-            Replicate::default(),
-            // Add physics components for collision
-            RigidBody::Dynamic,
-            Collider::ball(physics::BOID_RADIUS), // Use constant
-            GameCollisionGroups::boid(),
-            bevy_rapier2d::prelude::ActiveEvents::COLLISION_EVENTS, // Enable collision detection
-            Transform::from_xyz(x, y, 0.0),
-            GlobalTransform::default(),
-            bevy_rapier2d::dynamics::Velocity {
-                linvel: Vec2::new(angle.cos() * speed, angle.sin() * speed),
-                angvel: 0.0,
+    
+    // Get resources
+    let mut group_id_counter = groups::GroupIdCounter::default();
+    let mut boid_id_counter = groups::BoidIdCounter::default();
+    
+    // Spawn groups in different zones
+    let mut spawned_groups = 0;
+    
+    // Create a simple territory for testing (no complex generation)
+    let simple_territory = TerritoryData {
+        center: Vec2::new(300.0, 300.0), // Just place it in the arena
+        radius: 100.0,
+        zone: ArenaZone::Outer,
+        patrol_points: vec![ // Simple patrol points
+            Vec2::new(250.0, 250.0),
+            Vec2::new(350.0, 250.0),
+            Vec2::new(350.0, 350.0),
+            Vec2::new(250.0, 350.0),
+        ],
+        neighboring_territories: vec![],
+    };
+    
+    // Start with just 1 group for testing
+    groups::spawn_boid_group(
+        commands,
+        GroupArchetype::Recon {
+            detection_range: 300.0,
+            flee_speed_bonus: 1.2,
+        },
+        20, // Small group for testing
+        simple_territory,
+        &mut group_id_counter,
+        &mut boid_id_counter,
+    );
+    spawned_groups += 1;
+    
+    // Comment out other groups for now
+    /*
+    // Spawn Defensive groups in middle zone
+    for territory in territories.iter().filter(|t| t.zone == ArenaZone::Middle).take(1) {
+        groups::spawn_boid_group(
+            commands,
+            GroupArchetype::Defensive {
+                protection_radius: 600.0,
+                retreat_threshold: 0.4,
             },
-            bevy_rapier2d::dynamics::GravityScale(0.0),
-            bevy_rapier2d::dynamics::Damping {
-                linear_damping: 0.0, // No damping for free movement
-                angular_damping: 1.0,
-            },
-            bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(0.5), // Light boids
-            SyncPosition,                                                 // Mark for position sync
-        ));
+            30, // Smaller groups for testing
+            territory.clone(),
+            &mut group_id_counter,
+            &mut boid_id_counter,
+        );
+        spawned_groups += 1;
     }
+    */
+    
+    info!("Spawned {} boid groups with territories", spawned_groups);
+    
+    // Update resource counters
+    commands.insert_resource(group_id_counter);
+    commands.insert_resource(boid_id_counter);
 }
 
 // Helper function to spawn static obstacles

@@ -1,0 +1,50 @@
+# fly.toml app configuration file generated for boid-wars on 2025-07-18T13:10:08-05:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'boid-wars'
+primary_region = 'dfw'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  BOID_WARS_BOID_SPEED = '150.0'
+  BOID_WARS_DEFAULT_HEALTH = '100.0'
+  BOID_WARS_GAME_HEIGHT = '900.0'
+  BOID_WARS_GAME_WIDTH = '1200.0'
+  BOID_WARS_PLAYER_SPEED = '200.0'
+  BOID_WARS_PROTOCOL_ID = '12345'
+  BOID_WARS_SERVER_BIND_ADDR = '0.0.0.0:8080'
+  BOID_WARS_SPAWN_X = '600.0'
+  BOID_WARS_SPAWN_Y = '450.0'
+  RUST_LOG = 'info'
+
+[[services]]
+  protocol = 'tcp'
+  internal_port = 8080
+  processes = ['app']
+
+  [[services.ports]]
+    port = 80
+    handlers = ['http']
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ['tls', 'http']
+
+  [services.concurrency]
+    type = 'connections'
+    hard_limit = 100
+    soft_limit = 80
+
+  [[services.tcp_checks]]
+    interval = '15s'
+    timeout = '2s'
+    grace_period = '10s'
+
+[[vm]]
+  size = 'shared-cpu-4x'
+  memory = '2gb'

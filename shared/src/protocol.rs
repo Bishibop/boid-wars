@@ -2,6 +2,7 @@ use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::GAME_CONFIG;
 
@@ -54,7 +55,7 @@ impl Default for BoidCombat {
     fn default() -> Self {
         Self {
             damage: 5.0,             // Half of player damage
-            fire_rate: 0.5,          // 1 shot every 2 seconds
+            fire_rate: 0.2,          // 1 shot every 5 seconds (much slower)
             projectile_speed: 400.0, // Slower than player (600)
             aggression_range: 200.0, // Detect players within 200 units
             spread_angle: 0.087,     // ~5 degrees in radians (much more accurate)
@@ -104,6 +105,159 @@ impl Default for Health {
             max: default_health,
         }
     }
+}
+
+// Group System Components
+
+/// Core group component for managing boid groups
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct BoidGroup {
+    pub id: u32,
+    pub archetype: GroupArchetype,
+    pub home_territory: TerritoryData,
+    pub current_formation: Formation,
+    pub behavior_state: GroupBehavior,
+    #[serde(skip)]
+    pub active_shooters: HashSet<Entity>,
+    pub max_shooters: u8,
+}
+
+/// Boid membership component
+#[derive(Component, Clone, Debug)]
+pub struct BoidGroupMember {
+    pub group_entity: Entity,
+    pub group_id: u32,
+    pub formation_slot: Option<FormationSlot>,
+    pub role_in_group: BoidRole,
+}
+
+/// Formation slot identifier
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FormationSlot(pub usize);
+
+/// Role a boid plays in its group
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum BoidRole {
+    Leader,
+    Flanker,
+    Support,
+    Scout,
+}
+
+/// Group archetypes with distinct behaviors
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub enum GroupArchetype {
+    Assault {
+        aggression_multiplier: f32,
+        preferred_range: f32,
+    },
+    Defensive {
+        protection_radius: f32,
+        retreat_threshold: f32,
+    },
+    Recon {
+        detection_range: f32,
+        flee_speed_bonus: f32,
+    },
+}
+
+/// Dynamic formations
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum Formation {
+    VFormation { 
+        angle: f32, 
+        spacing: f32,
+        leader_boost: f32,
+    },
+    CircleDefense { 
+        radius: f32,
+        layers: u8,
+        rotation_speed: f32,
+    },
+    SwarmAttack { 
+        spread: f32,
+        convergence_point: Vec2,
+    },
+    PatrolLine {
+        length: f32,
+        wave_amplitude: f32,
+    },
+}
+
+impl Formation {
+    pub fn default_for_archetype(archetype: &GroupArchetype) -> Self {
+        match archetype {
+            GroupArchetype::Assault { .. } => Formation::VFormation {
+                angle: 45.0_f32.to_radians(),
+                spacing: 30.0,
+                leader_boost: 1.2,
+            },
+            GroupArchetype::Defensive { .. } => Formation::CircleDefense {
+                radius: 80.0,
+                layers: 2,
+                rotation_speed: 0.5,
+            },
+            GroupArchetype::Recon { .. } => Formation::PatrolLine {
+                length: 200.0,
+                wave_amplitude: 50.0,
+            },
+        }
+    }
+}
+
+/// Group AI states
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum GroupBehavior {
+    Patrolling { 
+        route: Vec<Vec2>, 
+        current_waypoint: usize,
+    },
+    Engaging { 
+        primary_target: u32, // Target player ID instead of Entity
+        #[serde(skip)]
+        secondary_targets: Vec<u32>,
+    },
+    Retreating { 
+        rally_point: Vec2,
+        speed_multiplier: f32,
+    },
+    Defending { 
+        position: Vec2,
+        radius: f32,
+    },
+}
+
+/// Territory data for group home areas
+#[derive(Component, Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TerritoryData {
+    pub center: Vec2,
+    pub radius: f32,
+    pub zone: ArenaZone,
+    pub patrol_points: Vec<Vec2>,
+    pub neighboring_territories: Vec<u32>,
+}
+
+/// Arena zones for territory placement
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub enum ArenaZone {
+    Outer,  // Recon groups
+    Middle, // Defensive groups  
+    Inner,  // Assault groups
+    Center, // Boss groups (future)
+}
+
+/// Group velocity for hierarchical movement
+#[derive(Component, Clone, Debug, Serialize, Deserialize, PartialEq, Deref, DerefMut)]
+pub struct GroupVelocity(pub Vec2);
+
+/// Replicated group data for network optimization
+#[derive(Component, Serialize, Deserialize, Clone, PartialEq)]
+pub struct ReplicatedGroup {
+    pub id: u32,
+    pub position: Vec2,
+    pub formation: Formation,
+    pub member_count: u32,
+    pub archetype: GroupArchetype,
 }
 
 // Inputs
@@ -218,6 +372,11 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<BoidCombat>(ChannelDirection::ServerToClient);
         app.register_component::<Obstacle>(ChannelDirection::ServerToClient);
         app.register_component::<Projectile>(ChannelDirection::ServerToClient);
+        
+        // Register group system components
+        app.register_component::<BoidGroup>(ChannelDirection::ServerToClient);
+        app.register_component::<ReplicatedGroup>(ChannelDirection::ServerToClient);
+        app.register_component::<GroupVelocity>(ChannelDirection::ServerToClient);
 
         // Register PlayerInput as message (not input plugin)
         app.register_message::<PlayerInput>(ChannelDirection::ClientToServer);

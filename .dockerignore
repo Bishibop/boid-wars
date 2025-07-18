@@ -1,0 +1,191 @@
+# flyctl launch added from .gitignore
+# Rust
+**/target
+# **/Cargo.lock  # We need Cargo.lock for Docker builds
+**/**/*.rs.bk
+
+# WASM
+**/pkg
+**/wasm-pack.log
+
+# Node
+**/node_modules
+**/dist
+**/.vite
+**/*.log
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/client/src/wasm
+
+# IDE
+**/.vscode
+**/.idea
+**/*.swp
+**/*.swo
+**/*~
+
+# OS
+**/.DS_Store
+**/Thumbs.db
+
+# Environment
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Certificates
+**/*.pem
+**/*.key
+**/*.crt
+
+# Build outputs
+**/build
+**/out
+
+# Git worktrees
+**/*-worktree
+**/physics-worktree
+**/boid-simulation-worktree
+
+# Test scripts
+**/test_compile.sh
+
+# flyctl launch added from assets-worktree/.gitignore
+# Rust
+assets-worktree/**/target
+# assets-worktree/**/Cargo.lock  # We need Cargo.lock for Docker builds
+assets-worktree/**/**/*.rs.bk
+
+# WASM
+assets-worktree/**/pkg
+assets-worktree/**/wasm-pack.log
+
+# Node
+assets-worktree/**/node_modules
+assets-worktree/**/dist
+assets-worktree/**/.vite
+assets-worktree/**/*.log
+assets-worktree/**/npm-debug.log*
+assets-worktree/**/yarn-debug.log*
+assets-worktree/**/yarn-error.log*
+assets-worktree/**/client/src/wasm
+
+# IDE
+assets-worktree/**/.vscode
+assets-worktree/**/.idea
+assets-worktree/**/*.swp
+assets-worktree/**/*.swo
+assets-worktree/**/*~
+
+# OS
+assets-worktree/**/.DS_Store
+assets-worktree/**/Thumbs.db
+
+# Environment
+assets-worktree/**/.env
+assets-worktree/**/.env.local
+assets-worktree/**/.env.*.local
+
+# Certificates
+assets-worktree/**/*.pem
+assets-worktree/**/*.key
+assets-worktree/**/*.crt
+
+# Build outputs
+assets-worktree/**/build
+assets-worktree/**/out
+
+# Git worktrees
+assets-worktree/**/*-worktree
+assets-worktree/**/physics-worktree
+assets-worktree/**/boid-simulation-worktree
+
+# Test scripts
+assets-worktree/**/test_compile.sh
+
+# Large asset packs (keep local, don't commit)
+# Ignore all asset directories by default
+assets-worktree/**/assets/craftpix-981156-space-shooter-game-kit
+assets-worktree/**/assets/Shmup Final
+assets-worktree/**/assets/Items
+assets-worktree/**/assets/processed
+
+# But explicitly include the specific assets we're actually using
+!assets-worktree/**/assets/craftpix-981156-space-shooter-game-kit
+!assets-worktree/**/assets/craftpix-981156-space-shooter-game-kit/Spaceship-2d-game-sprites
+!assets-worktree/**/assets/craftpix-981156-space-shooter-game-kit/Spaceship-2d-game-sprites/PNG
+!assets-worktree/**/assets/craftpix-981156-space-shooter-game-kit/Spaceship-2d-game-sprites/PNG/Ship_01
+!assets-worktree/**/assets/craftpix-981156-space-shooter-game-kit/Spaceship-2d-game-sprites/PNG/Ship_01/Ship_LVL_1.png
+!assets-worktree/**/assets/craftpix-981156-space-shooter-game-kit/Pirate-spaceship-game-sprites
+!assets-worktree/**/assets/craftpix-981156-space-shooter-game-kit/Pirate-spaceship-game-sprites/PNG
+!assets-worktree/**/assets/craftpix-981156-space-shooter-game-kit/Pirate-spaceship-game-sprites/PNG/Ships
+!assets-worktree/**/assets/craftpix-981156-space-shooter-game-kit/Pirate-spaceship-game-sprites/PNG/Ships/Ship_04.png
+!assets-worktree/**/assets/craftpix-981156-space-shooter-game-kit/laser1_small.png
+
+# Keep the derelict ship backgrounds we're using
+!assets-worktree/**/assets/derelict_shipt_background_big-removebg.png
+!assets-worktree/**/assets/derelict-big-2-removebg.png
+!assets-worktree/**/assets/derelict-big-3-removebg.png
+
+# flyctl launch added from assets-worktree/bevy-client/pkg/.gitignore
+assets-worktree/bevy-client/pkg/**/*
+
+# flyctl launch added from bevy-client/pkg/.gitignore
+bevy-client/pkg/**/*
+
+# flyctl launch added from boid-simulation-worktree/.gitignore
+# Rust
+boid-simulation-worktree/**/target
+# boid-simulation-worktree/**/Cargo.lock  # We need Cargo.lock for Docker builds
+boid-simulation-worktree/**/**/*.rs.bk
+
+# WASM
+boid-simulation-worktree/**/pkg
+boid-simulation-worktree/**/wasm-pack.log
+
+# Node
+boid-simulation-worktree/**/node_modules
+boid-simulation-worktree/**/dist
+boid-simulation-worktree/**/.vite
+boid-simulation-worktree/**/*.log
+boid-simulation-worktree/**/npm-debug.log*
+boid-simulation-worktree/**/yarn-debug.log*
+boid-simulation-worktree/**/yarn-error.log*
+boid-simulation-worktree/**/client/src/wasm
+
+# IDE
+boid-simulation-worktree/**/.vscode
+boid-simulation-worktree/**/.idea
+boid-simulation-worktree/**/*.swp
+boid-simulation-worktree/**/*.swo
+boid-simulation-worktree/**/*~
+
+# OS
+boid-simulation-worktree/**/.DS_Store
+boid-simulation-worktree/**/Thumbs.db
+
+# Environment
+boid-simulation-worktree/**/.env
+boid-simulation-worktree/**/.env.local
+boid-simulation-worktree/**/.env.*.local
+
+# Certificates
+boid-simulation-worktree/**/*.pem
+boid-simulation-worktree/**/*.key
+boid-simulation-worktree/**/*.crt
+
+# Build outputs
+boid-simulation-worktree/**/build
+boid-simulation-worktree/**/out
+
+# Git worktrees
+boid-simulation-worktree/**/*-worktree
+boid-simulation-worktree/**/physics-worktree
+boid-simulation-worktree/**/boid-simulation-worktree
+
+# Test scripts
+boid-simulation-worktree/**/test_compile.sh
+
+# flyctl launch added from boid-simulation-worktree/bevy-client/pkg/.gitignore
+boid-simulation-worktree/bevy-client/pkg/**/*
