@@ -4,15 +4,22 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::{NetworkTarget, SharedConfig};
 use lightyear::server::message::ReceiveMessage;
 use std::net::SocketAddr;
-use tracing::info;
+use tracing::{info, warn};
+
+// Camera2dBundle should be in prelude
 
 pub mod config;
 pub mod despawn_utils;
 pub mod physics;
 pub mod pool;
 pub mod position_sync;
+pub mod spatial_grid;
+pub mod simple_flocking;
+pub mod simple_debug_ui;
 use bevy_rapier2d::prelude::{Collider, ExternalForce, ExternalImpulse, RigidBody};
 use config::PhysicsConfig;
+use simple_debug_ui::SimpleDebugUIPlugin;
+use simple_flocking::SimpleFlockingPlugin;
 use physics::{GameCollisionGroups, PhysicsPlugin, Ship, WeaponStats};
 use position_sync::{PositionSyncPlugin, SyncPosition};
 
@@ -22,7 +29,6 @@ fn main() {
     // Load configuration
     let network_config = &*NETWORK_CONFIG;
     let game_config = &*GAME_CONFIG;
-    let _server_settings = &*SERVER_CONFIG;
 
     // Configure server address
     let server_addr: SocketAddr = network_config
@@ -40,11 +46,21 @@ fn main() {
     let lightyear_config = create_websocket_config(server_addr, network_config);
 
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Boid Wars Server".to_string(),
+                resolution: (1800.0, 1350.0).into(),
+                ..default()
+            }),
+            ..default()
+        }))
+        // Add debug UI early so it gets input events first
+        .add_plugins(SimpleDebugUIPlugin)
         .add_plugins(ServerPlugins::new(lightyear_config))
         .add_plugins(ProtocolPlugin)
         .add_plugins(PhysicsPlugin)
         .add_plugins(PositionSyncPlugin)
+        .add_plugins(SimpleFlockingPlugin)
         .add_plugins(BoidWarsServerPlugin)
         .run();
 }
@@ -93,8 +109,7 @@ impl Plugin for BoidWarsServerPlugin {
 
         // Add game systems
         app.add_systems(Update, (log_status, spawn_collision_objects_delayed));
-        app.add_systems(FixedUpdate, (move_boids, update_boid_ai));
-
+        // Boid movement is now handled by SimpleFlockingPlugin
         // Note: Physics systems (player_input_system, etc.) are added by PhysicsPlugin in FixedUpdate
     }
 }
@@ -104,7 +119,6 @@ fn setup_server(mut commands: Commands) {
 
     // Load configuration
     let game_config = &*GAME_CONFIG;
-    let _server_settings = &*SERVER_CONFIG;
 
     // Start the Lightyear server
     commands.queue(|world: &mut World| {
@@ -114,7 +128,7 @@ fn setup_server(mut commands: Commands) {
 
     // Create status timer
     commands.insert_resource(StatusTimer(Timer::from_seconds(
-        _server_settings.status_log_interval,
+        5.0, // Default status log interval
         TimerMode::Repeating,
     )));
 
@@ -128,6 +142,7 @@ fn setup_server(mut commands: Commands) {
 
     info!("🌐 Server ready for client connections");
 }
+
 
 // Spawn AI players when a human player connects
 fn spawn_collision_objects_delayed(
@@ -149,16 +164,33 @@ fn spawn_collision_objects_delayed(
 fn spawn_boid_flock(commands: &mut Commands) {
     let game_config = &*GAME_CONFIG;
 
-    // Spawn 8 boids scattered around the arena
-    for i in 0..8 {
-        let boid_id = 100 + i; // Use IDs 100-107
+    // Spawn 30 boids scattered around the arena
+    for i in 0..30 {
+        let boid_id = 100 + i; // Use IDs 100-129
 
-        // Scatter them around the arena
-        let x = (i as f32 * 100.0) % game_config.game_width;
-        let y = (i as f32 * 80.0) % game_config.game_height;
+        // Scatter them around the arena with some randomness
+        let base_x = ((i % 6) as f32 * game_config.game_width / 6.0) + 50.0;
+        let base_y = ((i / 6) as f32 * game_config.game_height / 5.0) + 50.0;
+        
+        // Add some random offset to avoid perfect grid
+        let x = base_x + (rand::random::<f32>() - 0.5) * 60.0;
+        let y = base_y + (rand::random::<f32>() - 0.5) * 60.0;
+        
+        // Clamp to ensure they spawn within bounds
+        let x = x.clamp(20.0, game_config.game_width - 20.0);
+        let y = y.clamp(20.0, game_config.game_height - 20.0);
+        
+        // Create boid with random initial velocity
+        let mut bundle = BoidBundle::new(boid_id, x, y);
+        let angle = rand::random::<f32>() * std::f32::consts::TAU;
+        let speed = 100.0; // Initial speed
+        bundle.velocity = boid_wars_shared::Velocity::new(
+            angle.cos() * speed,
+            angle.sin() * speed,
+        );
 
         commands.spawn((
-            BoidBundle::new(boid_id, x, y),
+            bundle,
             Replicate::default(),
             // Add physics components for collision
             RigidBody::Dynamic,
@@ -167,16 +199,25 @@ fn spawn_boid_flock(commands: &mut Commands) {
             bevy_rapier2d::prelude::ActiveEvents::COLLISION_EVENTS, // Enable collision detection
             Transform::from_xyz(x, y, 0.0),
             GlobalTransform::default(),
-            bevy_rapier2d::dynamics::Velocity::zero(),
+            bevy_rapier2d::dynamics::Velocity {
+                linvel: Vec2::new(angle.cos() * speed, angle.sin() * speed),
+                angvel: 0.0,
+            },
             bevy_rapier2d::dynamics::GravityScale(0.0),
+            bevy_rapier2d::dynamics::Damping {
+                linear_damping: 0.0, // No damping for free movement
+                angular_damping: 1.0,
+            },
+            bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(0.5), // Light boids
             SyncPosition, // Mark for position sync
         ));
     }
+    
+    info!("🐦 Spawned 30 boids for flocking");
 }
 
 // Helper function to spawn static obstacles
 fn spawn_static_obstacles(commands: &mut Commands) {
-    let _game_config = &*GAME_CONFIG;
     let collision_groups = GameCollisionGroups::wall();
 
     // Create some obstacles scattered around the arena
@@ -363,173 +404,6 @@ fn log_status(
             total_entities,
             physics_component_count
         );
-    }
-}
-
-// Player movement is handled by the physics system in physics.rs
-
-fn move_boids(
-    time: Res<Time>,
-    mut boids: Query<
-        (
-            &mut Transform,
-            &boid_wars_shared::Velocity,
-            Option<&mut bevy_rapier2d::dynamics::Velocity>,
-        ),
-        With<Boid>,
-    >,
-) {
-    let game_config = &*GAME_CONFIG;
-    let delta = time.delta_secs();
-
-    for (mut transform, vel, physics_vel) in boids.iter_mut() {
-        // Update transform position (physics)
-        transform.translation.x += vel.0.x * delta;
-        transform.translation.y += vel.0.y * delta;
-
-        // Keep boid in bounds
-        transform.translation.x = transform.translation.x.clamp(0.0, game_config.game_width);
-        transform.translation.y = transform.translation.y.clamp(0.0, game_config.game_height);
-
-        // Also update physics velocity if present
-        if let Some(mut phys_vel) = physics_vel {
-            phys_vel.linvel = vel.0;
-        }
-    }
-}
-
-fn update_boid_ai(
-    mut boids: Query<(Entity, &Transform, &mut boid_wars_shared::Velocity), With<Boid>>,
-    _players: Query<&Transform, (With<boid_wars_shared::Player>, Without<Boid>)>,
-    mut debug_timer: Local<f32>,
-    time: Res<Time>,
-) {
-    *debug_timer += time.delta_secs();
-
-    let game_config = &*GAME_CONFIG;
-    let max_speed = game_config.boid_speed * 0.4; // Slower, more peaceful movement
-
-    let boid_count = boids.iter().count();
-    if *debug_timer > 2.0 {
-        info!(
-            "🐦 BOID AI: Processing {} boids with max_speed={:.1}",
-            boid_count, max_speed
-        );
-        *debug_timer = 0.0;
-    }
-
-    // Collect all boid data for flocking calculations
-    let boid_data: Vec<(Entity, Vec2, Vec2)> = boids
-        .iter()
-        .map(|(entity, transform, vel)| (entity, transform.translation.truncate(), vel.0))
-        .collect();
-
-    for (entity, boid_transform, mut boid_vel) in boids.iter_mut() {
-        let boid_pos = boid_transform.translation.truncate();
-        let mut separation = Vec2::ZERO;
-        let mut alignment = Vec2::ZERO;
-        let mut cohesion = Vec2::ZERO;
-        let mut neighbor_count = 0;
-
-        // Flocking parameters
-        let separation_radius = 50.0;
-        let alignment_radius = 80.0;
-        let cohesion_radius = 100.0;
-
-        for (other_entity, other_pos, other_vel) in &boid_data {
-            if *other_entity == entity {
-                continue;
-            } // Skip self
-
-            let diff = boid_pos - *other_pos;
-            let distance = diff.length();
-
-            // Separation: avoid crowding neighbors
-            if distance > 0.0 && distance < separation_radius {
-                let normalized_diff = diff / distance;
-                separation += normalized_diff / distance; // Stronger when closer
-            }
-
-            // Alignment and Cohesion: only with nearby neighbors
-            if distance < alignment_radius {
-                neighbor_count += 1;
-
-                // Alignment: steer towards average heading of neighbors
-                alignment += *other_vel;
-
-                // Cohesion: steer towards average position of neighbors
-                if distance < cohesion_radius {
-                    cohesion += *other_pos;
-                }
-            }
-        }
-
-        // Calculate steering forces
-        let mut steering = Vec2::ZERO;
-
-        // Apply separation (strongest force)
-        if separation.length() > 0.0 {
-            steering += separation.normalize() * max_speed * 1.5;
-        }
-
-        // Apply alignment
-        if neighbor_count > 0 {
-            let avg_velocity = alignment / neighbor_count as f32;
-            if avg_velocity.length() > 0.0 {
-                steering += (avg_velocity.normalize() * max_speed - boid_vel.0) * 0.5;
-            }
-
-            // Apply cohesion
-            let avg_position = cohesion / neighbor_count as f32;
-            let cohesion_force = (avg_position - boid_pos).normalize_or_zero() * max_speed;
-            steering += (cohesion_force - boid_vel.0) * 0.3;
-        }
-
-        // Add some wandering for natural movement
-        let wander_strength = 0.2;
-        let time_factor = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f32();
-        let wander_angle = (entity.index() as f32 + time_factor * 0.5).sin() * 2.0;
-        let wander =
-            Vec2::new(wander_angle.cos(), wander_angle.sin()) * max_speed * wander_strength;
-        steering += wander;
-
-        // Apply steering with smooth acceleration
-        boid_vel.0 += steering * 0.02; // Gentle acceleration
-
-        // Limit speed and add boundaries
-        if boid_vel.0.length() > max_speed {
-            boid_vel.0 = boid_vel.0.normalize() * max_speed;
-        }
-
-        // Boundary behavior: gently turn away from edges
-        let margin = 50.0;
-        let mut boundary_force = Vec2::ZERO;
-
-        if boid_pos.x < margin {
-            boundary_force.x += (margin - boid_pos.x) * 0.5;
-        } else if boid_pos.x > game_config.game_width - margin {
-            boundary_force.x -= (boid_pos.x - (game_config.game_width - margin)) * 0.5;
-        }
-
-        if boid_pos.y < margin {
-            boundary_force.y += (margin - boid_pos.y) * 0.5;
-        } else if boid_pos.y > game_config.game_height - margin {
-            boundary_force.y -= (boid_pos.y - (game_config.game_height - margin)) * 0.5;
-        }
-
-        boid_vel.0 += boundary_force * 0.1;
-
-        // Debug velocity changes
-        if *debug_timer < 0.1 && entity.index() == 1 {
-            // Debug first boid every 2 seconds
-            info!(
-                "🐦 Boid {:?}: pos=({:.1}, {:.1}) vel=({:.1}, {:.1}) steering=({:.1}, {:.1})",
-                entity, boid_pos.x, boid_pos.y, boid_vel.0.x, boid_vel.0.y, steering.x, steering.y
-            );
-        }
     }
 }
 

@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use boid_wars_shared;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::time::{Duration, Instant};
 
@@ -17,6 +18,48 @@ pub struct Despawning;
 /// Component to track pooled projectiles
 #[derive(Component)]
 pub struct PooledProjectile(PooledEntity);
+
+/// Resource to track player aggression for boid AI
+#[derive(Resource)]
+pub struct PlayerAggression {
+    /// Maps player entity to the time they last attacked
+    pub aggressive_players: HashMap<Entity, Instant>,
+    /// How long a player remains "aggressive" after attacking
+    pub aggression_duration: Duration,
+}
+
+impl Default for PlayerAggression {
+    fn default() -> Self {
+        Self {
+            aggressive_players: HashMap::new(),
+            aggression_duration: Duration::from_secs(5), // Players stay aggressive for 5 seconds
+        }
+    }
+}
+
+impl PlayerAggression {
+    /// Mark a player as aggressive
+    pub fn mark_aggressive(&mut self, player: Entity) {
+        self.aggressive_players.insert(player, Instant::now());
+    }
+    
+    /// Check if a player is currently aggressive
+    pub fn is_aggressive(&self, player: Entity) -> bool {
+        if let Some(&last_attack) = self.aggressive_players.get(&player) {
+            last_attack.elapsed() < self.aggression_duration
+        } else {
+            false
+        }
+    }
+    
+    /// Clean up expired aggression entries
+    pub fn cleanup_expired(&mut self) {
+        let now = Instant::now();
+        self.aggressive_players.retain(|_, &mut last_attack| {
+            now.duration_since(last_attack) < self.aggression_duration
+        });
+    }
+}
 
 // Re-export for convenience
 pub use bevy_rapier2d::prelude::{
@@ -61,6 +104,7 @@ impl Plugin for PhysicsPlugin {
             .insert_resource(physics_config)
             .init_resource::<MonitoringConfig>()
             .init_resource::<ArenaConfig>()
+            .init_resource::<PlayerAggression>()
             .insert_resource(ProjectilePool::new(
                 ProjectileTemplate { collider_radius },
                 pool_size,
@@ -102,6 +146,7 @@ impl Plugin for PhysicsPlugin {
                 (
                     shooting_system.in_set(PhysicsSet::Combat),
                     monitor_pool_health,
+                    cleanup_player_aggression,
                 ),
             );
     }
@@ -513,7 +558,7 @@ fn ai_player_system(
                 if let Some(nearest_player) = other_players.iter().min_by(|a, b| {
                     let dist_a = a.translation.distance(transform.translation);
                     let dist_b = b.translation.distance(transform.translation);
-                    dist_a.partial_cmp(&dist_b).unwrap()
+                    dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
                 }) {
                     let target_pos = nearest_player.translation.truncate();
                     input.movement = (target_pos - pos).normalize_or_zero();
@@ -613,6 +658,7 @@ fn shooting_system(
     mut commands: Commands,
     mut player_query: Query<(Entity, &PlayerInput, &mut Player, &WeaponStats, &Transform)>,
     mut pool: ResMut<ProjectilePool>,
+    mut player_aggression: ResMut<PlayerAggression>,
     time: Res<Time>,
     config: Res<PhysicsConfig>,
 ) {
@@ -622,6 +668,9 @@ fn shooting_system(
         if input.shooting && player.weapon_cooldown.finished() {
             // Reset cooldown
             player.weapon_cooldown.reset();
+            
+            // Mark player as aggressive
+            player_aggression.mark_aggressive(entity);
 
             // Spawn projectile - offset in the aim direction to avoid self-collision
             let spawn_offset = config.projectile_spawn_offset;
@@ -763,7 +812,7 @@ fn collision_system(
     mut collision_events: EventReader<CollisionEvent>,
     mut player_query: Query<&mut Player>,
     projectile_query: Query<&Projectile>,
-    _boid_query: Query<Entity, With<boid_wars_shared::Boid>>,
+    mut boid_query: Query<(Entity, &mut boid_wars_shared::Health), With<boid_wars_shared::Boid>>,
     _obstacle_query: Query<Entity, With<boid_wars_shared::Obstacle>>,
 ) {
     for collision_event in collision_events.read() {
@@ -780,8 +829,15 @@ fn collision_system(
                     if player.health <= 0.0 {
                         handle_player_death(&mut commands, *entity2);
                     }
+                } else if let Ok((boid_entity, mut health)) = boid_query.get_mut(*entity2) {
+                    // Hit a boid - apply damage
+                    health.current = (health.current - projectile.damage).max(0.0);
+                    
+                    // Handle boid death
+                    if health.current <= 0.0 {
+                        commands.entity(boid_entity).insert(Despawning);
+                    }
                 }
-                // Could add boid damage here if needed
             }
 
             // Check if entity2 is a projectile (reverse collision)
@@ -796,8 +852,15 @@ fn collision_system(
                     if player.health <= 0.0 {
                         handle_player_death(&mut commands, *entity1);
                     }
+                } else if let Ok((boid_entity, mut health)) = boid_query.get_mut(*entity1) {
+                    // Hit a boid - apply damage
+                    health.current = (health.current - projectile.damage).max(0.0);
+                    
+                    // Handle boid death
+                    if health.current <= 0.0 {
+                        commands.entity(boid_entity).insert(Despawning);
+                    }
                 }
-                // Could add boid damage here if needed
             }
         }
     }
@@ -1103,4 +1166,9 @@ fn sync_projectile_physics_to_network(
         // Sync velocity from physics to network
         net_vel.0 = physics_vel.linvel;
     }
+}
+
+/// System to clean up expired player aggression entries
+fn cleanup_player_aggression(mut player_aggression: ResMut<PlayerAggression>) {
+    player_aggression.cleanup_expired();
 }

@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use std::collections::VecDeque;
+use tracing::warn;
 
 /// Generation-based entity handle to prevent use-after-free
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -53,9 +54,14 @@ impl<T: Component + Clone> BoundedPool<T> {
     pub fn acquire(&mut self) -> Option<PooledEntity> {
         if let Some(mut pooled) = self.available.pop_front() {
             // Increment generation to invalidate old references
-            let gen = self.generations.get_mut(&pooled.entity).unwrap();
-            *gen += 1;
-            pooled.generation = *gen;
+            // This should always exist as we maintain the generation map
+            if let Some(gen) = self.generations.get_mut(&pooled.entity) {
+                *gen += 1;
+                pooled.generation = *gen;
+            } else {
+                warn!("Pool entity {:?} missing from generation map", pooled.entity);
+                return None;
+            }
 
             self.active.insert(pooled.entity, pooled.generation);
             self.stats.total_spawned += 1;

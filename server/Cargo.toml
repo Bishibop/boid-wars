@@ -25,6 +25,10 @@ rand = "0.8"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+# Debug UI (dev builds only)
+bevy-inspector-egui = "0.32"
+bevy_egui = "0.35"
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 

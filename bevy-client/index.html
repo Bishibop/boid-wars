@@ -3,110 +3,284 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Boid Wars - Bevy WASM Client</title>
+    <title>HELIOSPHERE - Boid Wars</title>
     <style>
-        body {
+        * {
             margin: 0;
             padding: 0;
-            background: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            font-family: Arial, sans-serif;
+            box-sizing: border-box;
         }
-        
-        #game-container {
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #000;
+            color: #fff;
+            overflow-x: hidden;
             position: relative;
-            border: 2px solid #333;
         }
-        
-        #bevy-canvas {
-            display: block;
-            background: #000;
+
+        /* Animated starfield background */
+        .stars {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(2px 2px at 20px 30px, #eee, transparent),
+                radial-gradient(2px 2px at 40px 70px, #ddd, transparent),
+                radial-gradient(1px 1px at 50px 90px, #fff, transparent),
+                radial-gradient(1px 1px at 130px 40px, #fff, transparent),
+                radial-gradient(2px 2px at 200px 10px, #ddd, transparent);
+            background-repeat: repeat;
+            background-size: 250px 250px;
+            animation: stars 120s linear infinite;
+            z-index: -2;
         }
-        
-        #loading {
+
+        @keyframes stars {
+            from { transform: translateY(0); }
+            to { transform: translateY(-250px); }
+        }
+
+        /* Nebula effect */
+        .nebula {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(ellipse at top left, rgba(255, 0, 128, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at bottom right, rgba(0, 255, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at center, rgba(128, 0, 255, 0.05) 0%, transparent 70%);
+            z-index: -1;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        header {
+            padding: 30px 0;
+            text-align: center;
+            position: relative;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            letter-spacing: 3px;
+            color: #00ffff;
+            text-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+        }
+
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            position: relative;
+        }
+
+        .hero-content {
+            animation: fadeIn 2s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .presents {
+            font-size: 18px;
+            letter-spacing: 4px;
+            color: #888;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            font-size: clamp(48px, 10vw, 120px);
+            font-weight: bold;
+            letter-spacing: 8px;
+            background: linear-gradient(45deg, #00ffff, #ff00ff, #00ffff);
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: gradient 3s ease infinite;
+            margin-bottom: 30px;
+            text-shadow: 0 0 40px rgba(0, 255, 255, 0.3);
+        }
+
+        @keyframes gradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .tagline {
+            font-size: 24px;
+            color: #ccc;
+            margin-bottom: 50px;
+            letter-spacing: 2px;
+        }
+
+        /* Play Button */
+        .play-button {
+            display: inline-block;
+            padding: 20px 60px;
+            font-size: 24px;
+            font-weight: bold;
+            text-decoration: none;
+            color: #000;
+            background: linear-gradient(45deg, #00ffff, #00ff88);
+            border: none;
+            border-radius: 50px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
+        }
+
+        .play-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 50px rgba(0, 255, 255, 0.8);
+        }
+
+        .play-button::before {
+            content: '';
             position: absolute;
             top: 50%;
             left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
             transform: translate(-50%, -50%);
-            color: white;
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .play-button:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        /* Features Section */
+        .features {
+            padding: 100px 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+        }
+
+        /* Requirements */
+        .requirements {
+            padding: 50px 0;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.7);
+        }
+
+        .browser-support {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 30px;
+            flex-wrap: wrap;
+        }
+
+        .browser {
             font-size: 18px;
-            z-index: 10;
+            color: #0f0;
         }
-        
-        #info {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            color: white;
-            font-size: 12px;
-            z-index: 10;
-            background: rgba(0,0,0,0.7);
-            padding: 10px;
-            border-radius: 5px;
-            max-width: 300px;
+
+        .browser.unsupported {
+            color: #f00;
         }
-        
-        #performance {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            color: white;
-            font-size: 12px;
-            z-index: 10;
-            background: rgba(0,0,0,0.7);
-            padding: 10px;
-            border-radius: 5px;
+
+        /* Footer */
+        footer {
+            padding: 30px 0;
+            text-align: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            color: #666;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 48px;
+                letter-spacing: 4px;
+            }
+            
+            .tagline {
+                font-size: 18px;
+            }
+            
+            .play-button {
+                padding: 15px 40px;
+                font-size: 20px;
+            }
         }
     </style>
 </head>
 <body>
-    <div id="game-container">
-        <div id="loading">Loading Boid Wars...</div>
-        <div id="info">
-            <h3>Bevy WASM Performance Test</h3>
-            <p><strong>1000 entities</strong> with movement and collision</p>
-            <p>Check browser console for FPS reports</p>
-            <p>Target: 60 FPS with good performance</p>
-        </div>
-        <div id="performance">
-            <h4>Performance Metrics</h4>
-            <p id="fps">FPS: Loading...</p>
-            <p id="entities">Entities: 1000</p>
-            <p id="bundle-size">Bundle: 62MB (debug)</p>
-        </div>
-        <canvas id="bevy-canvas" width="800" height="600"></canvas>
-    </div>
+    <div class="stars"></div>
+    <div class="nebula"></div>
 
-    <script type="module">
-        import init, { run } from './pkg/boid_wars_bevy_client.js';
-        
-        async function main() {
-            try {
-                console.log("🚀 Loading Bevy WASM client...");
-                
-                // Initialize the WASM module
-                await init();
-                
-                console.log("✅ WASM module loaded, starting Bevy app...");
-                
-                // Hide loading message
-                document.getElementById('loading').style.display = 'none';
-                
-                // Start the Bevy app
-                run();
-                
-                console.log("🎮 Bevy app started");
-                
-            } catch (error) {
-                console.error("❌ Failed to load Bevy WASM client:", error);
-                document.getElementById('loading').innerText = 'Failed to load: ' + error.message;
-            }
-        }
-        
-        main();
-    </script>
+    <header>
+        <div class="container">
+            <div class="logo">BOID WARS</div>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <p class="presents">presents</p>
+                <h1>HELIOSPHERE</h1>
+                <p class="tagline">Battle against massive AI swarms in deep space</p>
+                <a href="demo.html" class="play-button">Launch Demo</a>
+            </div>
+        </div>
+    </section>
+
+    <section class="features">
+        <div class="container" style="text-align: center; max-width: 800px;">
+            <p style="font-size: 20px; line-height: 1.8; color: #ccc;">
+                HELIOSPHERE is a high-performance multiplayer space shooter where you battle against massive swarms of AI-controlled enemies. 
+                Built with cutting-edge web technologies, experience intense twin-stick combat with thousands of coordinated boids, 
+                all running at 60 FPS directly in your browser.
+            </p>
+        </div>
+    </section>
+
+    <section class="requirements">
+        <div class="container">
+            <h2 style="font-size: 32px; margin-bottom: 20px;">Browser Requirements</h2>
+            <p style="color: #ccc; margin-bottom: 30px;">HELIOSPHERE requires a modern browser with WebAssembly support</p>
+            <div class="browser-support">
+                <div class="browser">✅ Chrome (Recommended)</div>
+                <div class="browser">✅ Edge</div>
+                <div class="browser">✅ Firefox</div>
+                <div class="browser unsupported">❌ Safari (Not Supported)</div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 Boid Wars. Built with Rust, Bevy, and WebAssembly.</p>
+        </div>
+    </footer>
 </body>
 </html>
