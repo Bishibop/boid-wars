@@ -39,6 +39,30 @@ pub struct Boid {
     pub id: u32,
 }
 
+/// Combat capabilities for boids
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct BoidCombat {
+    pub damage: f32,
+    pub fire_rate: f32,
+    pub projectile_speed: f32,
+    pub aggression_range: f32,
+    pub spread_angle: f32,
+    pub last_shot_time: f32,
+}
+
+impl Default for BoidCombat {
+    fn default() -> Self {
+        Self {
+            damage: 5.0,             // Half of player damage
+            fire_rate: 0.5,          // 1 shot every 2 seconds
+            projectile_speed: 400.0, // Slower than player (600)
+            aggression_range: 200.0, // Detect players within 200 units
+            spread_angle: 0.087,     // ~5 degrees in radians (much more accurate)
+            last_shot_time: 0.0,
+        }
+    }
+}
+
 /// Static obstacle component
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Obstacle {
@@ -152,6 +176,7 @@ pub struct BoidBundle {
     pub position: Position,
     pub velocity: Velocity,
     pub health: Health,
+    pub combat: BoidCombat,
 }
 
 impl BoidBundle {
@@ -161,6 +186,7 @@ impl BoidBundle {
             position: Position::new(x, y),
             velocity: Velocity::new(0.0, 0.0),
             health: Health::default(),
+            combat: BoidCombat::default(),
         }
     }
 }
@@ -189,6 +215,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Health>(ChannelDirection::ServerToClient);
         app.register_component::<Player>(ChannelDirection::ServerToClient);
         app.register_component::<Boid>(ChannelDirection::ServerToClient);
+        app.register_component::<BoidCombat>(ChannelDirection::ServerToClient);
         app.register_component::<Obstacle>(ChannelDirection::ServerToClient);
         app.register_component::<Projectile>(ChannelDirection::ServerToClient);
 

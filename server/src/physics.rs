@@ -61,6 +61,90 @@ impl PlayerAggression {
     }
 }
 
+/// Resource to track boid aggression and enable swarm communication
+#[derive(Resource)]
+pub struct BoidAggression {
+    /// Maps boid entity to aggression data
+    pub boid_aggression: HashMap<Entity, BoidAggressionData>,
+    /// How long boids remember their attackers
+    pub aggression_duration: Duration,
+    /// Radius within which boids alert their neighbors
+    pub alert_radius: f32,
+}
+
+/// Data structure for tracking boid aggression
+#[derive(Debug, Clone)]
+pub struct BoidAggressionData {
+    /// The player entity that attacked this boid
+    pub attacker: Entity,
+    /// When the attack occurred
+    pub attack_time: Instant,
+    /// Whether this boid has alerted its neighbors
+    pub alert_sent: bool,
+}
+
+impl FromWorld for BoidAggression {
+    fn from_world(world: &mut World) -> Self {
+        let config = world.resource::<PhysicsConfig>();
+        Self {
+            boid_aggression: HashMap::new(),
+            aggression_duration: config.boid_aggression_memory_duration,
+            alert_radius: config.boid_aggression_alert_radius,
+        }
+    }
+}
+
+impl BoidAggression {
+    /// Record that a boid was attacked by a player
+    pub fn record_attack(&mut self, boid: Entity, attacker: Entity) {
+        self.boid_aggression.insert(
+            boid,
+            BoidAggressionData {
+                attacker,
+                attack_time: Instant::now(),
+                alert_sent: false,
+            },
+        );
+    }
+
+    /// Get the attacker of a boid (if any)
+    pub fn get_attacker(&self, boid: Entity) -> Option<Entity> {
+        self.boid_aggression.get(&boid).map(|data| data.attacker)
+    }
+
+    /// Check if a boid is currently aggressive (has recent attacker)
+    pub fn is_aggressive(&self, boid: Entity) -> bool {
+        if let Some(data) = self.boid_aggression.get(&boid) {
+            data.attack_time.elapsed() < self.aggression_duration
+        } else {
+            false
+        }
+    }
+
+    /// Mark that a boid has sent an alert to its neighbors
+    pub fn mark_alert_sent(&mut self, boid: Entity) {
+        if let Some(data) = self.boid_aggression.get_mut(&boid) {
+            data.alert_sent = true;
+        }
+    }
+
+    /// Check if a boid needs to send an alert to its neighbors
+    pub fn needs_alert(&self, boid: Entity) -> bool {
+        if let Some(data) = self.boid_aggression.get(&boid) {
+            self.is_aggressive(boid) && !data.alert_sent
+        } else {
+            false
+        }
+    }
+
+    /// Clean up expired aggression entries
+    pub fn cleanup_expired(&mut self) {
+        let now = Instant::now();
+        self.boid_aggression
+            .retain(|_, data| now.duration_since(data.attack_time) < self.aggression_duration);
+    }
+}
+
 // Re-export for convenience
 pub use bevy_rapier2d::prelude::{
     ActiveEvents, Collider, CollisionEvent, ExternalForce, ExternalImpulse,
@@ -105,11 +189,24 @@ impl Plugin for PhysicsPlugin {
             .init_resource::<MonitoringConfig>()
             .init_resource::<ArenaConfig>()
             .init_resource::<PlayerAggression>()
+            .init_resource::<BoidAggression>()
             .insert_resource(ProjectilePool::new(
                 ProjectileTemplate { collider_radius },
                 pool_size,
             ))
-            .add_systems(Startup, (setup_arena, setup_projectile_pool).chain())
+            .insert_resource(BoidProjectilePool::new(
+                BoidProjectileTemplate { collider_radius },
+                200, // Smaller pool for boids
+            ))
+            .add_systems(
+                Startup,
+                (
+                    setup_arena,
+                    setup_projectile_pool,
+                    setup_boid_projectile_pool,
+                )
+                    .chain(),
+            )
             // Configure system sets with explicit ordering
             .configure_sets(
                 FixedUpdate,
@@ -131,6 +228,7 @@ impl Plugin for PhysicsPlugin {
                 (
                     player_input_system.in_set(PhysicsSet::Input),
                     ai_player_system.in_set(PhysicsSet::AI),
+                    swarm_communication_system.in_set(PhysicsSet::AI),
                     player_movement_system.in_set(PhysicsSet::Movement),
                     projectile_system.in_set(PhysicsSet::Movement),
                     collision_system.in_set(PhysicsSet::Collision),
@@ -145,8 +243,11 @@ impl Plugin for PhysicsPlugin {
                 Update,
                 (
                     shooting_system.in_set(PhysicsSet::Combat),
+                    boid_shooting_system.in_set(PhysicsSet::Combat),
                     monitor_pool_health,
+                    monitor_boid_pool_health,
                     cleanup_player_aggression,
+                    cleanup_boid_aggression,
                 ),
             );
     }
@@ -173,11 +274,20 @@ impl FromWorld for ArenaConfig {
 }
 
 /// Collision groups for different entity types
+/// 
+/// ## Group Allocation:
+/// - `GROUP_1`: Players - can be hit by all projectiles, collide with walls and other players
+/// - `GROUP_2`: Player projectiles - hit players, boids, and walls
+/// - `GROUP_3`: Walls - block all entities and projectiles
+/// - `GROUP_4`: Boids - can be hit by player projectiles, collide with walls and other boids
+/// - `GROUP_5`: Boid projectiles - only hit players and walls (not other boids)
+/// - `GROUP_6-32`: Reserved for future use (power-ups, obstacles, etc.)
 pub struct GameCollisionGroups {
     pub players: Group,
     pub projectiles: Group,
     pub walls: Group,
-    pub boids: Group, // Future use
+    pub boids: Group,
+    pub boid_projectiles: Group, // Separate group for boid projectiles
 }
 
 impl Default for GameCollisionGroups {
@@ -187,6 +297,7 @@ impl Default for GameCollisionGroups {
             projectiles: Group::GROUP_2,
             walls: Group::GROUP_3,
             boids: Group::GROUP_4,
+            boid_projectiles: Group::GROUP_5, // New group for boid projectiles
         }
     }
 }
@@ -196,7 +307,7 @@ impl GameCollisionGroups {
         let groups = Self::default();
         bevy_rapier2d::geometry::CollisionGroups::new(
             groups.players,
-            groups.players | groups.projectiles | groups.walls, // Players now collide with other players
+            groups.players | groups.projectiles | groups.walls | groups.boid_projectiles, // Players collide with both types of projectiles
         )
     }
 
@@ -220,7 +331,15 @@ impl GameCollisionGroups {
         let groups = Self::default();
         bevy_rapier2d::geometry::CollisionGroups::new(
             groups.boids,
-            groups.projectiles | groups.walls | groups.boids, // Boids collide with projectiles, walls, and each other
+            groups.projectiles | groups.walls | groups.boids, // Boids only collide with player projectiles, not boid projectiles
+        )
+    }
+
+    pub fn boid_projectile() -> bevy_rapier2d::geometry::CollisionGroups {
+        let groups = Self::default();
+        bevy_rapier2d::geometry::CollisionGroups::new(
+            groups.boid_projectiles,
+            groups.players | groups.walls, // Boid projectiles only hit players and walls, not other boids
         )
     }
 }
@@ -363,9 +482,18 @@ impl Default for WeaponStats {
 /// Type alias for our projectile pool
 pub type ProjectilePool = BoundedPool<ProjectileTemplate>;
 
+/// Type alias for boid projectile pool
+pub type BoidProjectilePool = BoundedPool<BoidProjectileTemplate>;
+
 /// Template for spawning projectiles
 #[derive(Component, Clone)]
 pub struct ProjectileTemplate {
+    pub collider_radius: f32,
+}
+
+/// Template for spawning boid projectiles
+#[derive(Component, Clone)]
+pub struct BoidProjectileTemplate {
     pub collider_radius: f32,
 }
 
@@ -409,6 +537,56 @@ fn setup_projectile_pool(
                 },
                 Velocity::zero(),
                 ProjectileTemplate {
+                    collider_radius: template.collider_radius,
+                },
+            ))
+            .id()
+        },
+    );
+
+    let _status = pool.status();
+}
+
+/// Setup boid projectile pool with pre-spawned projectiles
+fn setup_boid_projectile_pool(
+    mut commands: Commands,
+    mut pool: ResMut<BoidProjectilePool>,
+    config: Res<PhysicsConfig>,
+) {
+    // Pre-spawn initial batch of boid projectiles
+    pool.pre_spawn(
+        &mut commands,
+        50, // Initial spawn count for boids
+        |cmds, template| {
+            let mut timer = Timer::from_seconds(2.0, TimerMode::Once);
+            timer.pause();
+
+            cmds.spawn((
+                // Core components that won't change
+                RigidBody::Dynamic,
+                Collider::ball(template.collider_radius),
+                Sensor,
+                GameCollisionGroups::boid_projectile(),
+                bevy_rapier2d::dynamics::GravityScale(0.0),
+                Name::new("Pooled Boid Projectile"),
+                // Position far off-screen
+                Transform::from_translation(config.projectile_pool_offscreen_position),
+                GlobalTransform::default(),
+                // Placeholder components that will be updated when used
+                Projectile {
+                    damage: 5.0, // Boid projectiles deal 5 damage
+                    owner: None, // No owner for pooled projectiles
+                    projectile_type: ProjectileType::Basic,
+                    lifetime: timer,
+                    speed: 400.0, // Slower than player projectiles
+                },
+                ProjectilePhysics {
+                    velocity: Vec2::ZERO,
+                    spawn_time: Instant::now(),
+                    max_lifetime: Duration::from_secs(2),
+                },
+                Velocity::zero(),
+                BoidProjectileTemplate {
                     collider_radius: template.collider_radius,
                 },
             ))
@@ -767,6 +945,225 @@ fn shooting_system(
     }
 }
 
+/// System for boid shooting behavior
+fn boid_shooting_system(
+    mut commands: Commands,
+    mut boid_query: Query<
+        (
+            Entity,
+            &Transform,
+            &mut boid_wars_shared::BoidCombat,
+            &boid_wars_shared::Position,
+        ),
+        With<boid_wars_shared::Boid>,
+    >,
+    player_query: Query<(Entity, &boid_wars_shared::Position), With<boid_wars_shared::Player>>,
+    boid_aggression: Res<BoidAggression>,
+    spatial_grid: Res<crate::spatial_grid::SpatialGrid>,
+    mut boid_pool: ResMut<BoidProjectilePool>,
+    time: Res<Time>,
+    config: Res<PhysicsConfig>,
+) {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+
+    for (boid_entity, transform, mut combat, boid_pos) in boid_query.iter_mut() {
+        // Update shooting timer
+        combat.last_shot_time += time.delta_secs();
+
+        // Check if boid can shoot (cooldown finished)
+        let cooldown_time = 1.0 / combat.fire_rate; // Convert fire rate to cooldown
+        if combat.last_shot_time < cooldown_time {
+            continue;
+        }
+
+        // Find target player
+        let target_pos = find_boid_target(
+            boid_entity,
+            boid_pos,
+            &player_query,
+            &boid_aggression,
+            &spatial_grid,
+            combat.aggression_range,
+        );
+
+        if let Some(target_position) = target_pos {
+            // Reset shooting timer
+            combat.last_shot_time = 0.0;
+
+            // Calculate aim direction with spread
+            let base_direction = (target_position - boid_pos.0).normalize();
+            let spread_angle = rng.gen_range(-combat.spread_angle..combat.spread_angle);
+            let rotation = std::f32::consts::PI * spread_angle;
+            let cos_rot = rotation.cos();
+            let sin_rot = rotation.sin();
+
+            // Apply rotation to direction vector
+            let aim_direction = Vec2::new(
+                base_direction.x * cos_rot - base_direction.y * sin_rot,
+                base_direction.x * sin_rot + base_direction.y * cos_rot,
+            );
+
+            // Spawn projectile
+            let spawn_offset = config.projectile_spawn_offset;
+            let projectile_spawn_pos =
+                transform.translation.truncate() + aim_direction * spawn_offset;
+            let projectile_velocity = aim_direction * combat.projectile_speed;
+
+            // Try to get a projectile from the boid pool
+            let projectile_entity = if let Some(pooled_handle) = boid_pool.acquire() {
+                // Update existing projectile components
+                commands.entity(pooled_handle.entity).insert((
+                    Projectile {
+                        damage: combat.damage,
+                        owner: Some(boid_entity),
+                        projectile_type: ProjectileType::Basic,
+                        lifetime: {
+                            let mut timer = Timer::new(Duration::from_secs(2), TimerMode::Once);
+                            timer.unpause();
+                            timer
+                        },
+                        speed: combat.projectile_speed,
+                    },
+                    ProjectilePhysics {
+                        velocity: projectile_velocity,
+                        spawn_time: Instant::now(),
+                        max_lifetime: Duration::from_secs(2),
+                    },
+                    Transform::from_translation(projectile_spawn_pos.extend(0.0)),
+                    Velocity::linear(projectile_velocity),
+                    ActiveEvents::COLLISION_EVENTS,
+                ));
+
+                commands
+                    .entity(pooled_handle.entity)
+                    .insert(PooledProjectile(pooled_handle));
+
+                pooled_handle.entity
+            } else {
+                // Pool exhausted, spawn new projectile
+                commands
+                    .spawn((
+                        Projectile {
+                            damage: combat.damage,
+                            owner: Some(boid_entity),
+                            projectile_type: ProjectileType::Basic,
+                            lifetime: Timer::new(Duration::from_secs(2), TimerMode::Once),
+                            speed: combat.projectile_speed,
+                        },
+                        ProjectilePhysics {
+                            velocity: projectile_velocity,
+                            spawn_time: Instant::now(),
+                            max_lifetime: Duration::from_secs(2),
+                        },
+                        RigidBody::Dynamic,
+                        Collider::ball(config.projectile_collider_radius),
+                        Sensor,
+                        GameCollisionGroups::boid_projectile(),
+                        ActiveEvents::COLLISION_EVENTS,
+                        Velocity::linear(projectile_velocity),
+                        Transform::from_translation(projectile_spawn_pos.extend(0.0)),
+                        GlobalTransform::default(),
+                        bevy_rapier2d::dynamics::GravityScale(0.0),
+                        Name::new("Boid Projectile"),
+                    ))
+                    .id()
+            };
+
+            // Add network components for client replication
+            commands.entity(projectile_entity).insert((
+                boid_wars_shared::Projectile {
+                    id: projectile_entity.index(),
+                    damage: combat.damage,
+                    owner_id: boid_entity.index() as u64, // Use boid entity as owner
+                },
+                boid_wars_shared::Position(projectile_spawn_pos),
+                boid_wars_shared::Velocity(projectile_velocity),
+                lightyear::prelude::server::Replicate::default(),
+            ));
+        }
+    }
+}
+
+/// Find target for boid shooting
+fn find_boid_target(
+    boid_entity: Entity,
+    boid_pos: &boid_wars_shared::Position,
+    players: &Query<(Entity, &boid_wars_shared::Position), With<boid_wars_shared::Player>>,
+    aggression: &BoidAggression,
+    spatial_grid: &crate::spatial_grid::SpatialGrid,
+    range: f32,
+) -> Option<Vec2> {
+    // 1. Check if boid has a remembered attacker
+    if let Some(attacker_entity) = aggression.get_attacker(boid_entity) {
+        if let Ok((_, player_pos)) = players.get(attacker_entity) {
+            let distance = boid_pos.0.distance(player_pos.0);
+            if distance <= range {
+                return Some(player_pos.0);
+            }
+        }
+    }
+
+    // 2. Use spatial grid to find nearby players
+    let nearby_entities = spatial_grid.get_nearby_entities(boid_pos.0, range);
+
+    let mut closest_player = None;
+    let mut closest_distance = range;
+
+    for entity in nearby_entities {
+        if let Ok((_, player_pos)) = players.get(entity) {
+            let distance = boid_pos.0.distance(player_pos.0);
+            if distance < closest_distance {
+                closest_distance = distance;
+                closest_player = Some(player_pos.0);
+            }
+        }
+    }
+
+    closest_player
+}
+
+/// System for swarm communication - alerts nearby boids when one is attacked
+fn swarm_communication_system(
+    mut boid_aggression: ResMut<BoidAggression>,
+    spatial_grid: Res<crate::spatial_grid::SpatialGrid>,
+    boid_query: Query<(Entity, &boid_wars_shared::Position), With<boid_wars_shared::Boid>>,
+) {
+    // Find boids that were recently attacked and need to alert their neighbors
+    let mut boids_to_alert = Vec::new();
+
+    for (boid_entity, boid_pos) in boid_query.iter() {
+        if boid_aggression.needs_alert(boid_entity) {
+            boids_to_alert.push((boid_entity, boid_pos.0));
+        }
+    }
+
+    // For each boid that needs to send an alert, find nearby boids and share the threat
+    for (alerting_boid, alerting_pos) in boids_to_alert {
+        if let Some(attacker) = boid_aggression.get_attacker(alerting_boid) {
+            // Find nearby boids within alert radius
+            let nearby_entities =
+                spatial_grid.get_nearby_entities(alerting_pos, boid_aggression.alert_radius);
+
+            // Alert all nearby boids about the threat
+            for entity in nearby_entities {
+                if let Ok((nearby_boid, _)) = boid_query.get(entity) {
+                    // Don't alert the boid to itself
+                    if nearby_boid != alerting_boid {
+                        // Only alert if the nearby boid isn't already tracking this attacker
+                        if !boid_aggression.is_aggressive(nearby_boid) {
+                            boid_aggression.record_attack(nearby_boid, attacker);
+                        }
+                    }
+                }
+            }
+
+            // Mark this boid as having sent its alert
+            boid_aggression.mark_alert_sent(alerting_boid);
+        }
+    }
+}
+
 /// System to update projectiles
 fn projectile_system(
     mut commands: Commands,
@@ -812,70 +1209,115 @@ fn projectile_system(
 fn collision_system(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
-    mut player_query: Query<(&mut Player, Option<&mut boid_wars_shared::Health>)>,
+    mut health_queries: ParamSet<(
+        Query<(&mut Player, Option<&mut boid_wars_shared::Health>)>,
+        Query<&mut boid_wars_shared::Health, With<boid_wars_shared::Boid>>,
+    )>,
     projectile_query: Query<&Projectile>,
-    mut boid_query: Query<(Entity, &mut boid_wars_shared::Health), With<boid_wars_shared::Boid>>,
+    boid_entity_query: Query<Entity, With<boid_wars_shared::Boid>>,
     _obstacle_query: Query<Entity, With<boid_wars_shared::Obstacle>>,
+    mut boid_aggression: ResMut<BoidAggression>,
 ) {
-    for collision_event in collision_events.read() {
+    // Collect collision events and identify which are player vs boid collisions
+    let collision_data: Vec<_> = collision_events.read().collect();
+
+    // First collect all the collision data we need
+    let mut player_collision_data = Vec::new();
+    let mut boid_collision_data = Vec::new();
+
+    for collision_event in &collision_data {
         if let CollisionEvent::Started(entity1, entity2, _) = collision_event {
             // Check if entity1 is a projectile
             if let Ok(projectile) = projectile_query.get(*entity1) {
-                // Projectile hit something - mark for despawn (will be returned to pool)
-                commands.entity(*entity1).insert(Despawning);
-
-                // Check what it hit
-                if let Ok((mut player, health_opt)) = player_query.get_mut(*entity2) {
-                    // Hit a player - apply damage with clamping
-                    player.health = (player.health - projectile.damage).max(0.0);
-                    
-                    // Sync to Health component if it exists
-                    if let Some(mut health) = health_opt {
-                        health.current = player.health;
-                    }
-                    
-                    if player.health <= 0.0 {
-                        handle_player_death(&mut commands, *entity2);
-                    }
-                } else if let Ok((boid_entity, mut health)) = boid_query.get_mut(*entity2) {
-                    // Hit a boid - apply damage
-                    health.current = (health.current - projectile.damage).max(0.0);
-
-                    // Handle boid death
-                    if health.current <= 0.0 {
-                        commands.entity(boid_entity).insert(Despawning);
-                    }
+                if health_queries.p0().get(*entity2).is_ok() {
+                    // Projectile hit player
+                    player_collision_data.push((
+                        *entity1,
+                        *entity2,
+                        projectile.damage,
+                        projectile.owner,
+                    ));
+                } else if boid_entity_query.get(*entity2).is_ok() {
+                    // Projectile hit boid
+                    boid_collision_data.push((
+                        *entity1,
+                        *entity2,
+                        projectile.damage,
+                        projectile.owner,
+                    ));
                 }
             }
 
-            // Check if entity2 is a projectile (reverse collision)
+            // Check if entity2 is a projectile
             if let Ok(projectile) = projectile_query.get(*entity2) {
-                // Projectile hit something - mark for despawn (will be returned to pool)
-                commands.entity(*entity2).insert(Despawning);
-
-                // Check what it hit
-                if let Ok((mut player, health_opt)) = player_query.get_mut(*entity1) {
-                    // Hit a player - apply damage with clamping
-                    player.health = (player.health - projectile.damage).max(0.0);
-                    
-                    // Sync to Health component if it exists
-                    if let Some(mut health) = health_opt {
-                        health.current = player.health;
-                    }
-                    
-                    if player.health <= 0.0 {
-                        handle_player_death(&mut commands, *entity1);
-                    }
-                } else if let Ok((boid_entity, mut health)) = boid_query.get_mut(*entity1) {
-                    // Hit a boid - apply damage
-                    health.current = (health.current - projectile.damage).max(0.0);
-
-                    // Handle boid death
-                    if health.current <= 0.0 {
-                        commands.entity(boid_entity).insert(Despawning);
-                    }
+                if health_queries.p0().get(*entity1).is_ok() {
+                    // Projectile hit player
+                    player_collision_data.push((
+                        *entity2,
+                        *entity1,
+                        projectile.damage,
+                        projectile.owner,
+                    ));
+                } else if boid_entity_query.get(*entity1).is_ok() {
+                    // Projectile hit boid
+                    boid_collision_data.push((
+                        *entity2,
+                        *entity1,
+                        projectile.damage,
+                        projectile.owner,
+                    ));
                 }
             }
+        }
+    }
+
+    // Process player collisions
+    for (projectile_entity, player_entity, damage, _owner) in player_collision_data {
+        if let Ok((mut player, health_opt)) = health_queries.p0().get_mut(player_entity) {
+            // Hit a player - apply damage with clamping
+            player.health = (player.health - damage).max(0.0);
+
+            // Sync to Health component if it exists
+            if let Some(mut health) = health_opt {
+                health.current = player.health;
+            }
+
+            if player.health <= 0.0 {
+                handle_player_death(&mut commands, player_entity);
+            }
+
+            // Mark projectile for despawn
+            commands.entity(projectile_entity).insert(Despawning);
+        }
+    }
+
+    // Process boid collisions
+    for (projectile_entity, boid_entity, damage, owner) in boid_collision_data {
+        // Check if owner is a player first (before borrowing health)
+        let owner_is_player = if let Some(owner_entity) = owner {
+            health_queries.p0().get(owner_entity).is_ok()
+        } else {
+            false
+        };
+
+        if let Ok(mut health) = health_queries.p1().get_mut(boid_entity) {
+            // Hit a boid - apply damage
+            health.current = (health.current - damage).max(0.0);
+
+            // Track aggression if projectile came from a player
+            if owner_is_player {
+                if let Some(owner_entity) = owner {
+                    boid_aggression.record_attack(boid_entity, owner_entity);
+                }
+            }
+
+            // Handle boid death
+            if health.current <= 0.0 {
+                commands.entity(boid_entity).insert(Despawning);
+            }
+
+            // Mark projectile for despawn
+            commands.entity(projectile_entity).insert(Despawning);
         }
     }
 }
@@ -897,7 +1339,8 @@ fn handle_player_death(commands: &mut Commands, player_entity: Entity) {
 #[allow(clippy::type_complexity)]
 fn return_projectiles_to_pool(
     mut commands: Commands,
-    mut pool: ResMut<ProjectilePool>,
+    mut player_pool: ResMut<ProjectilePool>,
+    mut boid_pool: ResMut<BoidProjectilePool>,
     mut projectiles: Query<
         (
             Entity,
@@ -906,13 +1349,23 @@ fn return_projectiles_to_pool(
             &mut Projectile,
             Option<&PooledProjectile>,
             Option<&Despawning>,
+            Option<&ProjectileTemplate>,
+            Option<&BoidProjectileTemplate>,
         ),
         With<Projectile>,
     >,
     config: Res<PhysicsConfig>,
 ) {
-    for (entity, mut transform, mut velocity, mut projectile, pooled, despawning) in
-        projectiles.iter_mut()
+    for (
+        entity,
+        mut transform,
+        mut velocity,
+        mut projectile,
+        pooled,
+        despawning,
+        player_template,
+        boid_template,
+    ) in projectiles.iter_mut()
     {
         // Check if this projectile should be returned to pool
         let should_return = despawning.is_some() || projectile.lifetime.finished();
@@ -920,8 +1373,18 @@ fn return_projectiles_to_pool(
         if should_return {
             // Only process pooled projectiles
             if let Some(PooledProjectile(pooled_handle)) = pooled {
+                // Determine which pool to use based on template type
+                let pool_valid = if player_template.is_some() {
+                    player_pool.is_valid(*pooled_handle)
+                } else if boid_template.is_some() {
+                    boid_pool.is_valid(*pooled_handle)
+                } else {
+                    // No template component, assume it's not pooled
+                    false
+                };
+
                 // Validate the handle is still valid
-                if !pool.is_valid(*pooled_handle) {
+                if !pool_valid {
                     warn!(
                         "[POOL] Invalid pooled handle for entity {:?}, removing from world",
                         entity
@@ -952,10 +1415,16 @@ fn return_projectiles_to_pool(
                     // Make sure it stays a sensor
                     entity_commands.insert(Sensor);
 
-                    // Return to pool
-                    if pool.release(*pooled_handle) {
-                        // Successfully returned
+                    // Return to appropriate pool based on template type
+                    let released = if player_template.is_some() {
+                        player_pool.release(*pooled_handle)
+                    } else if boid_template.is_some() {
+                        boid_pool.release(*pooled_handle)
                     } else {
+                        false
+                    };
+
+                    if !released {
                         warn!("[POOL] Failed to return projectile {:?} to pool - possible double-release", entity);
                     }
                 } else {
@@ -1001,7 +1470,29 @@ fn monitor_pool_health(
         let utilization = (status.active as f32 / status.total.max(1) as f32) * 100.0;
 
         if utilization > config.pool_high_utilization_threshold {
-            warn!("[POOL] High utilization detected! Consider increasing pool size or reducing projectile spawn rate");
+            warn!("[PLAYER POOL] High utilization detected! Consider increasing pool size or reducing projectile spawn rate");
+        }
+
+        *debug_timer = 0.0;
+    }
+}
+
+/// Monitor boid projectile pool health
+fn monitor_boid_pool_health(
+    pool: Res<BoidProjectilePool>,
+    mut debug_timer: Local<f32>,
+    time: Res<Time>,
+    config: Res<MonitoringConfig>,
+) {
+    *debug_timer += time.delta_secs();
+
+    // Log pool statistics at configured interval
+    if *debug_timer > config.pool_health_check_interval {
+        let status = pool.status();
+        let utilization = (status.active as f32 / status.total.max(1) as f32) * 100.0;
+
+        if utilization > config.pool_high_utilization_threshold {
+            warn!("[BOID POOL] High utilization detected! Consider increasing pool size or reducing boid projectile spawn rate");
         }
 
         *debug_timer = 0.0;
@@ -1192,4 +1683,9 @@ fn sync_projectile_physics_to_network(
 /// System to clean up expired player aggression entries
 fn cleanup_player_aggression(mut player_aggression: ResMut<PlayerAggression>) {
     player_aggression.cleanup_expired();
+}
+
+/// System to clean up expired boid aggression entries
+fn cleanup_boid_aggression(mut boid_aggression: ResMut<BoidAggression>) {
+    boid_aggression.cleanup_expired();
 }

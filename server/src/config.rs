@@ -39,6 +39,10 @@ pub struct PhysicsConfig {
 
     // Boid physics
     pub boid_radius: f32,
+    
+    // Boid aggression
+    pub boid_aggression_memory_duration: Duration,
+    pub boid_aggression_alert_radius: f32,
 }
 
 impl Default for PhysicsConfig {
@@ -79,6 +83,10 @@ impl Default for PhysicsConfig {
 
             // Boid physics
             boid_radius: 4.0,
+            
+            // Boid aggression
+            boid_aggression_memory_duration: Duration::from_secs(5),
+            boid_aggression_alert_radius: 150.0,
         }
     }
 }

@@ -114,9 +114,6 @@ impl Plugin for BoidWarsServerPlugin {
 }
 
 fn setup_server(mut commands: Commands) {
-    // Load configuration
-    let game_config = &*GAME_CONFIG;
-
     // Start the Lightyear server
     commands.queue(|world: &mut World| {
         world.start_server();
@@ -127,12 +124,6 @@ fn setup_server(mut commands: Commands) {
         5.0, // Default status log interval
         TimerMode::Repeating,
     )));
-
-    // Spawn the single boid for Iteration 0
-    commands.spawn((
-        BoidBundle::new(1, game_config.spawn_x, game_config.spawn_y),
-        Replicate::default(),
-    ));
 }
 
 // Spawn AI players when a human player connects
