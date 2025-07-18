@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boid Wars - Bevy WASM Client</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+        
+        #game-container {
+            position: relative;
+            border: 2px solid #333;
+        }
+        
+        #bevy-canvas {
+            display: block;
+            background: #000;
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+            z-index: 10;
+        }
+        
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 12px;
+            z-index: 10;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 300px;
+        }
+        
+        #performance {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            font-size: 12px;
+            z-index: 10;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="loading">Loading Boid Wars...</div>
+        <div id="info">
+            <h3>Bevy WASM Performance Test</h3>
+            <p><strong>1000 entities</strong> with movement and collision</p>
+            <p>Check browser console for FPS reports</p>
+            <p>Target: 60 FPS with good performance</p>
+        </div>
+        <div id="performance">
+            <h4>Performance Metrics</h4>
+            <p id="fps">FPS: Loading...</p>
+            <p id="entities">Entities: 1000</p>
+            <p id="bundle-size">Bundle: 62MB (debug)</p>
+        </div>
+        <canvas id="bevy-canvas" width="800" height="600"></canvas>
+    </div>
+
+    <script type="module">
+        import init, { run } from './pkg/boid_wars_bevy_client.js';
+        
+        async function main() {
+            try {
+                console.log("🚀 Loading Bevy WASM client...");
+                
+                // Initialize the WASM module
+                await init();
+                
+                console.log("✅ WASM module loaded, starting Bevy app...");
+                
+                // Hide loading message
+                document.getElementById('loading').style.display = 'none';
+                
+                // Start the Bevy app
+                run();
+                
+                console.log("🎮 Bevy app started");
+                
+            } catch (error) {
+                console.error("❌ Failed to load Bevy WASM client:", error);
+                document.getElementById('loading').innerText = 'Failed to load: ' + error.message;
+            }
+        }
+        
+        main();
+    </script>
+</body>
+</html>

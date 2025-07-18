@@ -14,17 +14,17 @@ pub mod physics;
 pub mod pool;
 pub mod position_sync;
 pub mod spatial_grid;
-pub mod simple_flocking;
-pub mod simple_debug_ui;
+pub mod flocking;
+pub mod debug_ui;
 use bevy_rapier2d::prelude::{Collider, ExternalForce, ExternalImpulse, RigidBody};
 use config::PhysicsConfig;
-use simple_debug_ui::SimpleDebugUIPlugin;
-use simple_flocking::SimpleFlockingPlugin;
+use debug_ui::DebugUIPlugin;
+use flocking::FlockingPlugin;
 use physics::{GameCollisionGroups, PhysicsPlugin, Ship, WeaponStats};
 use position_sync::{PositionSyncPlugin, SyncPosition};
 
 fn main() {
-    info!("🚀 Boid Wars Server Starting...");
+    info!("Starting Boid Wars server...");
 
     // Load configuration
     let network_config = &*NETWORK_CONFIG;
@@ -36,11 +36,8 @@ fn main() {
         .parse()
         .expect("Failed to parse server address");
 
-    info!("📡 Server will listen on {}", server_addr);
-    info!(
-        "🎮 Game area: {}x{}",
-        game_config.game_width, game_config.game_height
-    );
+    info!("Server listening on {} | Game area: {}x{}", 
+        server_addr, game_config.game_width, game_config.game_height);
 
     // Create server config
     let lightyear_config = create_websocket_config(server_addr, network_config);
@@ -55,12 +52,12 @@ fn main() {
             ..default()
         }))
         // Add debug UI early so it gets input events first
-        .add_plugins(SimpleDebugUIPlugin)
+        .add_plugins(DebugUIPlugin)
         .add_plugins(ServerPlugins::new(lightyear_config))
         .add_plugins(ProtocolPlugin)
         .add_plugins(PhysicsPlugin)
         .add_plugins(PositionSyncPlugin)
-        .add_plugins(SimpleFlockingPlugin)
+        .add_plugins(FlockingPlugin)
         .add_plugins(BoidWarsServerPlugin)
         .run();
 }
@@ -69,7 +66,7 @@ fn create_websocket_config(
     server_addr: SocketAddr,
     network_config: &NetworkConfig,
 ) -> lightyear::prelude::server::ServerConfig {
-    info!("🔧 Creating WebSocket server config...");
+    // Create WebSocket server config
 
     // WebSocket transport - NO CERTIFICATES!
     let transport = ServerTransport::WebSocketServer { server_addr };
@@ -109,13 +106,12 @@ impl Plugin for BoidWarsServerPlugin {
 
         // Add game systems
         app.add_systems(Update, (log_status, spawn_collision_objects_delayed));
-        // Boid movement is now handled by SimpleFlockingPlugin
+        // Boid movement is handled by FlockingPlugin
         // Note: Physics systems (player_input_system, etc.) are added by PhysicsPlugin in FixedUpdate
     }
 }
 
 fn setup_server(mut commands: Commands) {
-    info!("✅ Server initialized");
 
     // Load configuration
     let game_config = &*GAME_CONFIG;
@@ -123,7 +119,6 @@ fn setup_server(mut commands: Commands) {
     // Start the Lightyear server
     commands.queue(|world: &mut World| {
         world.start_server();
-        info!("🚀 Lightyear server started and listening!");
     });
 
     // Create status timer
@@ -138,9 +133,6 @@ fn setup_server(mut commands: Commands) {
         Replicate::default(),
     ));
 
-    info!("🤖 Spawned initial boid with replication");
-
-    info!("🌐 Server ready for client connections");
 }
 
 
@@ -213,7 +205,6 @@ fn spawn_boid_flock(commands: &mut Commands) {
         ));
     }
     
-    info!("🐦 Spawned 30 boids for flocking");
 }
 
 // Helper function to spawn static obstacles
@@ -381,28 +372,21 @@ fn log_status(
     mut status_timer: ResMut<StatusTimer>,
     players: Query<&Position, With<boid_wars_shared::Player>>,
     boids: Query<&Position, With<Boid>>,
-    physics_players: Query<&Transform, With<physics::Player>>,
     projectiles: Query<&Transform, With<Projectile>>,
     all_entities: Query<Entity>,
-    all_physics_components: Query<Entity, With<physics::Player>>,
 ) {
     if status_timer.0.tick(time.delta()).just_finished() {
         let player_count = players.iter().len();
         let boid_count = boids.iter().len();
-        let physics_player_count = physics_players.iter().len();
         let projectile_count = projectiles.iter().len();
         let total_entities = all_entities.iter().len();
-        let physics_component_count = all_physics_components.iter().len();
 
         info!(
-            "📊 Server - Uptime: {:.1}s | Network Players: {} | Boids: {} | Physics Players: {} | Projectiles: {} | Total Entities: {} | Physics Components: {}",
-            time.elapsed_secs(),
+            "[Status] Players: {} | Boids: {} | Projectiles: {} | Entities: {}",
             player_count,
             boid_count,
-            physics_player_count,
             projectile_count,
-            total_entities,
-            physics_component_count
+            total_entities
         );
     }
 }

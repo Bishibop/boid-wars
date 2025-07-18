@@ -3,11 +3,11 @@ use bevy::prelude::*;
 #[cfg(debug_assertions)]
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 #[cfg(debug_assertions)]
-use crate::simple_flocking::FlockingConfig;
+use crate::flocking::FlockingConfig;
 
-pub struct SimpleDebugUIPlugin;
+pub struct DebugUIPlugin;
 
-impl Plugin for SimpleDebugUIPlugin {
+impl Plugin for DebugUIPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(debug_assertions)]
         {
@@ -18,7 +18,7 @@ impl Plugin for SimpleDebugUIPlugin {
         
         #[cfg(not(debug_assertions))]
         {
-            info!("Debug UI disabled in release build");
+            // Debug UI disabled in release build
         }
     }
 }
@@ -36,7 +36,6 @@ fn setup_debug_camera(mut commands: Commands) {
             999.0,
         ),
     ));
-    info!("🎥 Debug camera spawned");
 }
 
 #[cfg(debug_assertions)]
@@ -45,7 +44,7 @@ fn debug_ui_system(
     mut flocking_config: ResMut<FlockingConfig>,
     time: Res<Time>,
     boids: Query<&boid_wars_shared::Velocity, With<boid_wars_shared::Boid>>,
-    spatial_grid: Res<crate::spatial_grid::SpatialGrid>,
+    _spatial_grid: Res<crate::spatial_grid::SpatialGrid>,
 ) {
     let ctx = match contexts.ctx_mut() {
         Ok(ctx) => ctx,

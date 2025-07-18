@@ -178,9 +178,9 @@ pub fn move_boids(
     }
 }
 
-pub struct SimpleFlockingPlugin;
+pub struct FlockingPlugin;
 
-impl Plugin for SimpleFlockingPlugin {
+impl Plugin for FlockingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FlockingConfig>();
         app.init_resource::<crate::spatial_grid::SpatialGrid>();
@@ -201,6 +201,6 @@ impl Plugin for SimpleFlockingPlugin {
             move_boids,
         );
         
-        info!("🐦 Simple Flocking plugin initialized with spatial grid optimization");
+        info!("Flocking plugin initialized with spatial grid");
     }
 }
