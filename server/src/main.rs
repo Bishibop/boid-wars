@@ -9,13 +9,13 @@ use tracing::{info, warn};
 // Camera2dBundle should be in prelude
 
 pub mod config;
+pub mod debug_ui;
 pub mod despawn_utils;
+pub mod flocking;
 pub mod physics;
 pub mod pool;
 pub mod position_sync;
 pub mod spatial_grid;
-pub mod flocking;
-pub mod debug_ui;
 use bevy_rapier2d::prelude::{Collider, ExternalForce, ExternalImpulse, RigidBody};
 use config::PhysicsConfig;
 use debug_ui::DebugUIPlugin;
@@ -36,8 +36,10 @@ fn main() {
         .parse()
         .expect("Failed to parse server address");
 
-    info!("Server listening on {} | Game area: {}x{}", 
-        server_addr, game_config.game_width, game_config.game_height);
+    info!(
+        "Server listening on {} | Game area: {}x{}",
+        server_addr, game_config.game_width, game_config.game_height
+    );
 
     // Create server config
     let lightyear_config = create_websocket_config(server_addr, network_config);
@@ -112,7 +114,6 @@ impl Plugin for BoidWarsServerPlugin {
 }
 
 fn setup_server(mut commands: Commands) {
-
     // Load configuration
     let game_config = &*GAME_CONFIG;
 
@@ -132,9 +133,7 @@ fn setup_server(mut commands: Commands) {
         BoidBundle::new(1, game_config.spawn_x, game_config.spawn_y),
         Replicate::default(),
     ));
-
 }
-
 
 // Spawn AI players when a human player connects
 fn spawn_collision_objects_delayed(
@@ -163,23 +162,26 @@ fn spawn_boid_flock(commands: &mut Commands) {
         // Scatter them around the arena with some randomness
         let base_x = ((i % 6) as f32 * game_config.game_width / 6.0) + 50.0;
         let base_y = ((i / 6) as f32 * game_config.game_height / 5.0) + 50.0;
-        
+
         // Add some random offset to avoid perfect grid
         let x = base_x + (rand::random::<f32>() - 0.5) * 60.0;
         let y = base_y + (rand::random::<f32>() - 0.5) * 60.0;
-        
+
         // Clamp to ensure they spawn within bounds
         let x = x.clamp(20.0, game_config.game_width - 20.0);
         let y = y.clamp(20.0, game_config.game_height - 20.0);
-        
+
         // Create boid with random initial velocity
         let mut bundle = BoidBundle::new(boid_id, x, y);
         let angle = rand::random::<f32>() * std::f32::consts::TAU;
         let speed = 100.0; // Initial speed
-        bundle.velocity = boid_wars_shared::Velocity::new(
-            angle.cos() * speed,
-            angle.sin() * speed,
-        );
+        bundle.velocity = boid_wars_shared::Velocity::new(angle.cos() * speed, angle.sin() * speed);
+
+        // Set boid health to 20 (standard boid)
+        bundle.health = boid_wars_shared::Health {
+            current: 20.0,
+            max: 20.0,
+        };
 
         commands.spawn((
             bundle,
@@ -201,10 +203,9 @@ fn spawn_boid_flock(commands: &mut Commands) {
                 angular_damping: 1.0,
             },
             bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(0.5), // Light boids
-            SyncPosition, // Mark for position sync
+            SyncPosition,                                                 // Mark for position sync
         ));
     }
-    
 }
 
 // Helper function to spawn static obstacles
@@ -284,6 +285,11 @@ fn handle_connections(
             physics::PlayerInput::default(),
             Ship::default(),
             WeaponStats::default(),
+            // Add Health component for replication
+            boid_wars_shared::Health {
+                current: 100.0,
+                max: 100.0,
+            },
         ));
 
         // Add physics body components
@@ -383,10 +389,7 @@ fn log_status(
 
         info!(
             "[Status] Players: {} | Boids: {} | Projectiles: {} | Entities: {}",
-            player_count,
-            boid_count,
-            projectile_count,
-            total_entities
+            player_count, boid_count, projectile_count, total_entities
         );
     }
 }

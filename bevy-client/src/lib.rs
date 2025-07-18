@@ -6,6 +6,27 @@ use std::net::SocketAddr;
 use tracing::info;
 use wasm_bindgen::prelude::*;
 
+// Health bar components
+#[derive(Component)]
+struct PlayerHealthBar;
+
+#[derive(Component)]
+struct HealthBarBackground;
+
+#[derive(Component)]
+struct HealthBarFill;
+
+#[derive(Component)]
+struct BoidHealthBar {
+    owner: Entity,
+}
+
+#[derive(Component)]
+struct HealthBarLink {
+    background: Entity,
+    fill: Entity,
+}
+
 // Setup panic hook for better error messages in browser console
 #[wasm_bindgen]
 pub fn run() {
@@ -45,7 +66,7 @@ pub fn run() {
     )));
 
     // Add systems
-    app.add_systems(Startup, (setup_scene, connect_to_server));
+    app.add_systems(Startup, (setup_scene, connect_to_server, setup_ui));
     app.add_systems(
         Update,
         (
@@ -55,6 +76,9 @@ pub fn run() {
             sync_position_to_transform,
             send_player_input,
             debug_player_count,
+            update_health_bars,
+            update_boid_health_bar_positions,
+            cleanup_health_bars,
         ),
     );
 
@@ -98,6 +122,37 @@ fn create_client_config() -> lightyear::prelude::client::ClientConfig {
         prediction: Default::default(),
         sync: Default::default(),
     }
+}
+
+/// UI setup for health bars
+fn setup_ui(mut commands: Commands) {
+    // Player health bar container
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(20.0),
+                left: Val::Px(20.0),
+                width: Val::Px(200.0),
+                height: Val::Px(20.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.2, 0.2, 0.2)),
+            PlayerHealthBar,
+            HealthBarBackground,
+        ))
+        .with_children(|parent| {
+            // Health bar fill
+            parent.spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.8, 0.2, 0.2)),
+                HealthBarFill,
+            ));
+        });
 }
 
 /// Scene setup
@@ -234,6 +289,30 @@ fn render_networked_entities(
             Sprite::from_color(Color::srgb(1.0, 0.0, 0.0), Vec2::new(8.0, 8.0)), // Original small size
             Transform::from_translation(Vec3::new(position.x, position.y, 1.0)),
         ));
+
+        // Spawn health bar for boid
+        let health_bar_bg = commands
+            .spawn((
+                Sprite::from_color(Color::srgb(0.2, 0.2, 0.2), Vec2::new(20.0, 3.0)),
+                Transform::from_translation(Vec3::new(position.x, position.y + 15.0, 1.5)),
+                BoidHealthBar { owner: entity },
+            ))
+            .id();
+
+        let health_bar_fill = commands
+            .spawn((
+                Sprite::from_color(Color::srgb(0.8, 0.2, 0.2), Vec2::new(20.0, 3.0)),
+                Transform::from_translation(Vec3::new(position.x, position.y + 15.0, 1.6)),
+                BoidHealthBar { owner: entity },
+                HealthBarFill,
+            ))
+            .id();
+
+        // Store health bar references on the boid entity
+        commands.entity(entity).insert(HealthBarLink {
+            background: health_bar_bg,
+            fill: health_bar_fill,
+        });
     }
 
     // Add visual representation to networked obstacles
@@ -340,5 +419,76 @@ fn debug_player_count(
             all_players.iter().count(),
             rendered_players.iter().count()
         );
+    }
+}
+
+/// Update health bars based on entity health
+fn update_health_bars(
+    // Query for the main player's health bar
+    mut health_bar_query: Query<&mut Node, (With<HealthBarFill>, With<PlayerHealthBar>)>,
+    // Query for boid health bars
+    mut boid_fill_query: Query<(&mut Sprite, &BoidHealthBar), With<HealthBarFill>>,
+    // Query for player health using Health component
+    player_query: Query<&Health, With<Player>>,
+    // Query for boid health
+    boid_query: Query<&Health, With<Boid>>,
+) {
+    // Update player health bar
+    for health in player_query.iter().take(1) {
+        for mut health_bar in health_bar_query.iter_mut().take(1) {
+            let health_percentage = (health.current / health.max).clamp(0.0, 1.0);
+            health_bar.width = Val::Percent(health_percentage * 100.0);
+        }
+    }
+
+    // Update boid health bars
+    for (mut sprite, health_bar) in boid_fill_query.iter_mut() {
+        if let Ok(health) = boid_query.get(health_bar.owner) {
+            let health_percentage = (health.current / health.max).clamp(0.0, 1.0);
+            sprite.custom_size = Some(Vec2::new(20.0 * health_percentage, 3.0));
+
+            // Optionally hide health bar if at full health
+            if health_percentage >= 1.0 {
+                sprite.color = Color::srgba(0.8, 0.2, 0.2, 0.0); // Make transparent
+            } else {
+                sprite.color = Color::srgba(0.8, 0.2, 0.2, 1.0); // Make visible
+            }
+        }
+    }
+}
+
+/// Update boid health bar positions to follow boids
+fn update_boid_health_bar_positions(
+    boid_query: Query<(&Transform, &HealthBarLink), With<Boid>>,
+    mut health_bar_query: Query<&mut Transform, (With<BoidHealthBar>, Without<Boid>)>,
+) {
+    for (boid_transform, health_link) in boid_query.iter() {
+        // Update background position
+        if let Ok(mut bar_transform) = health_bar_query.get_mut(health_link.background) {
+            bar_transform.translation.x = boid_transform.translation.x;
+            bar_transform.translation.y = boid_transform.translation.y + 15.0;
+        }
+
+        // Update fill position
+        if let Ok(mut bar_transform) = health_bar_query.get_mut(health_link.fill) {
+            bar_transform.translation.x = boid_transform.translation.x;
+            bar_transform.translation.y = boid_transform.translation.y + 15.0;
+        }
+    }
+}
+
+/// Clean up health bars when entities are removed
+fn cleanup_health_bars(
+    mut commands: Commands,
+    mut removed_boids: RemovedComponents<Boid>,
+    health_bar_query: Query<(Entity, &BoidHealthBar)>,
+) {
+    for removed_boid in removed_boids.read() {
+        // Find and despawn health bars associated with removed boids
+        for (entity, health_bar) in health_bar_query.iter() {
+            if health_bar.owner == removed_boid {
+                commands.entity(entity).despawn();
+            }
+        }
     }
 }

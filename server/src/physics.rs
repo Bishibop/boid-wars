@@ -42,7 +42,7 @@ impl PlayerAggression {
     pub fn mark_aggressive(&mut self, player: Entity) {
         self.aggressive_players.insert(player, Instant::now());
     }
-    
+
     /// Check if a player is currently aggressive
     pub fn is_aggressive(&self, player: Entity) -> bool {
         if let Some(&last_attack) = self.aggressive_players.get(&player) {
@@ -51,7 +51,7 @@ impl PlayerAggression {
             false
         }
     }
-    
+
     /// Clean up expired aggression entries
     pub fn cleanup_expired(&mut self) {
         let now = Instant::now();
@@ -351,7 +351,7 @@ pub struct WeaponStats {
 impl Default for WeaponStats {
     fn default() -> Self {
         Self {
-            damage: 25.0,
+            damage: 10.0, // Updated for combat design: players deal 10 damage
             fire_rate: 4.0,
             projectile_speed: 600.0,
             projectile_lifetime: Duration::from_secs(3),
@@ -558,7 +558,9 @@ fn ai_player_system(
                 if let Some(nearest_player) = other_players.iter().min_by(|a, b| {
                     let dist_a = a.translation.distance(transform.translation);
                     let dist_b = b.translation.distance(transform.translation);
-                    dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+                    dist_a
+                        .partial_cmp(&dist_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 }) {
                     let target_pos = nearest_player.translation.truncate();
                     input.movement = (target_pos - pos).normalize_or_zero();
@@ -668,7 +670,7 @@ fn shooting_system(
         if input.shooting && player.weapon_cooldown.finished() {
             // Reset cooldown
             player.weapon_cooldown.reset();
-            
+
             // Mark player as aggressive
             player_aggression.mark_aggressive(entity);
 
@@ -810,7 +812,7 @@ fn projectile_system(
 fn collision_system(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
-    mut player_query: Query<&mut Player>,
+    mut player_query: Query<(&mut Player, Option<&mut boid_wars_shared::Health>)>,
     projectile_query: Query<&Projectile>,
     mut boid_query: Query<(Entity, &mut boid_wars_shared::Health), With<boid_wars_shared::Boid>>,
     _obstacle_query: Query<Entity, With<boid_wars_shared::Obstacle>>,
@@ -823,16 +825,22 @@ fn collision_system(
                 commands.entity(*entity1).insert(Despawning);
 
                 // Check what it hit
-                if let Ok(mut player) = player_query.get_mut(*entity2) {
-                    // Hit a player - apply damage
-                    player.health -= projectile.damage;
+                if let Ok((mut player, health_opt)) = player_query.get_mut(*entity2) {
+                    // Hit a player - apply damage with clamping
+                    player.health = (player.health - projectile.damage).max(0.0);
+                    
+                    // Sync to Health component if it exists
+                    if let Some(mut health) = health_opt {
+                        health.current = player.health;
+                    }
+                    
                     if player.health <= 0.0 {
                         handle_player_death(&mut commands, *entity2);
                     }
                 } else if let Ok((boid_entity, mut health)) = boid_query.get_mut(*entity2) {
                     // Hit a boid - apply damage
                     health.current = (health.current - projectile.damage).max(0.0);
-                    
+
                     // Handle boid death
                     if health.current <= 0.0 {
                         commands.entity(boid_entity).insert(Despawning);
@@ -846,16 +854,22 @@ fn collision_system(
                 commands.entity(*entity2).insert(Despawning);
 
                 // Check what it hit
-                if let Ok(mut player) = player_query.get_mut(*entity1) {
-                    // Hit a player - apply damage
-                    player.health -= projectile.damage;
+                if let Ok((mut player, health_opt)) = player_query.get_mut(*entity1) {
+                    // Hit a player - apply damage with clamping
+                    player.health = (player.health - projectile.damage).max(0.0);
+                    
+                    // Sync to Health component if it exists
+                    if let Some(mut health) = health_opt {
+                        health.current = player.health;
+                    }
+                    
                     if player.health <= 0.0 {
                         handle_player_death(&mut commands, *entity1);
                     }
                 } else if let Ok((boid_entity, mut health)) = boid_query.get_mut(*entity1) {
                     // Hit a boid - apply damage
                     health.current = (health.current - projectile.damage).max(0.0);
-                    
+
                     // Handle boid death
                     if health.current <= 0.0 {
                         commands.entity(boid_entity).insert(Despawning);
@@ -867,9 +881,16 @@ fn collision_system(
 }
 
 /// Handle player death
-fn handle_player_death(_commands: &mut Commands, _player_entity: Entity) {
-    // TODO: Implement respawn logic or game over state
-    // TODO: Implement respawn logic
+fn handle_player_death(commands: &mut Commands, player_entity: Entity) {
+    // In battle royale mode, death is permanent
+    // Mark the player entity for cleanup
+    commands.entity(player_entity).insert(Despawning);
+
+    // TODO: Emit death event for UI/spectator mode
+    // TODO: Update game state for battle royale (track remaining players)
+    // TODO: Trigger death visual/audio effects
+
+    info!("Player {:?} has been eliminated", player_entity);
 }
 
 /// System to return projectiles to pool instead of despawning
