@@ -59,7 +59,10 @@ impl<T: Component + Clone> BoundedPool<T> {
                 *gen += 1;
                 pooled.generation = *gen;
             } else {
-                warn!("Pool entity {:?} missing from generation map", pooled.entity);
+                warn!(
+                    "Pool entity {:?} missing from generation map",
+                    pooled.entity
+                );
                 return None;
             }
 

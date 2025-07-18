@@ -69,7 +69,7 @@ pub fn update_spatial_grid(
     entities: Query<(Entity, &boid_wars_shared::Position)>,
 ) {
     spatial_grid.clear();
-    
+
     for (entity, pos) in entities.iter() {
         spatial_grid.insert(entity, pos.0);
     }
