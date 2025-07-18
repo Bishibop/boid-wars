@@ -51,10 +51,10 @@ impl Default for BoidGroupConfig {
     fn default() -> Self {
         Self {
             // Group parameters
-            min_group_size: 20,
-            max_group_size: 60,
-            default_group_size: 30,
-            groups_per_zone: 2, // Reasonable for smaller arena
+            min_group_size: 50,
+            max_group_size: 200,
+            default_group_size: 100,
+            groups_per_zone: 5, // More groups for larger scale
             
             // Formation parameters
             formation_strength: 0.7,
@@ -72,13 +72,13 @@ impl Default for BoidGroupConfig {
             territory_defense_bonus: 1.5,
             
             // LOD parameters
-            lod_near_distance: 400.0, // Scaled for smaller arena
-            lod_medium_distance: 800.0, // Scaled for smaller arena
-            lod_far_distance: 1200.0, // Scaled for smaller arena
+            lod_near_distance: 500.0, // Full detail for close groups
+            lod_medium_distance: 1000.0, // Reduced update rate
+            lod_far_distance: 1500.0, // Minimal updates for distant groups
             
             // Performance limits
-            max_groups: 8, // Conservative for smaller arena
-            max_total_boids: 300, // Conservative limit
+            max_groups: 50, // Support large-scale battles
+            max_total_boids: 10000, // Target 10k+ entities
         }
     }
 }

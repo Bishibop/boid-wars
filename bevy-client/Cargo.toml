@@ -31,8 +31,7 @@ serde = { version = "1.0", features = ["derive"] }
 tracing = "0.1"
 
 [dependencies.getrandom]
-version = "0.2"
-features = ["js"]
+workspace = true
 
 # WASM optimization
 [package.metadata.wasm-pack.profile.release]

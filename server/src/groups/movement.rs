@@ -2,8 +2,7 @@ use bevy::prelude::*;
 use boid_wars_shared::*;
 use crate::spatial_grid::{SpatialGrid, SpatialGridSet};
 use crate::flocking::FlockingConfig;
-use crate::groups::{GroupLOD, LODLevel, BoidGroupConfig, calculate_formation_positions};
-use std::collections::HashMap;
+use crate::groups::{GroupLOD, LODLevel, BoidGroupConfig};
 
 /// Plugin for group movement systems
 pub struct GroupMovementPlugin;

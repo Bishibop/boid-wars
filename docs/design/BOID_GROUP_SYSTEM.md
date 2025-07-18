@@ -592,8 +592,8 @@ pub struct BoidGroupConfig {
     pub lod_far_distance: f32,                 // 1500.0
     
     // Performance limits
-    pub max_groups: u32,                       // 10
-    pub max_total_boids: u32,                  // 1000
+    pub max_groups: u32,                       // 50
+    pub max_total_boids: u32,                  // 10000
 }
 ```
 

@@ -56,7 +56,7 @@ FROM rust:alpine AS wasm-builder
 WORKDIR /app
 
 # Install build dependencies
-RUN apk add --no-cache clang lld musl-dev git
+RUN apk add --no-cache clang lld musl-dev git pkgconfig openssl-dev
 
 # Add wasm32 target
 RUN rustup target add wasm32-unknown-unknown
@@ -118,9 +118,6 @@ USER appuser
 # Expose port
 EXPOSE 8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 # Run the server
 CMD ["./server"]

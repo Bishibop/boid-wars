@@ -1723,7 +1723,7 @@ dependencies = [
  "bevy",
  "boid-wars-shared",
  "console_error_panic_hook",
- "getrandom 0.2.16",
+ "getrandom 0.3.3",
  "lightyear",
  "serde",
  "tracing",

@@ -33,7 +33,7 @@ impl SpatialGrid {
         // Pre-allocate all cells with reasonable capacity
         let mut cells = Vec::with_capacity(total_cells);
         for _ in 0..total_cells {
-            cells.push(Vec::with_capacity(8)); // Most cells will have <8 entities
+            cells.push(Vec::with_capacity(32)); // Support higher entity density with 10k+ entities
         }
         
         Self {
@@ -73,7 +73,7 @@ impl SpatialGrid {
         // Use thread-local storage for the result to avoid allocations
         thread_local! {
             static RESULT_BUFFER: std::cell::RefCell<Vec<Entity>> = 
-                std::cell::RefCell::new(Vec::with_capacity(256));
+                std::cell::RefCell::new(Vec::with_capacity(1024)); // Larger buffer for 10k+ entities
         }
         
         RESULT_BUFFER.with(|buffer| {
@@ -130,7 +130,7 @@ impl SpatialGrid {
         radius: f32,
         positions: &Query<&boid_wars_shared::Position>,
     ) -> Vec<Entity> {
-        let mut result = Vec::with_capacity(64);
+        let mut result = Vec::with_capacity(128); // Larger buffer for higher entity density
         let radius_squared = radius * radius;
         
         // Get candidates from cells

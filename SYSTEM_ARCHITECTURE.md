@@ -33,11 +33,12 @@ Boid Wars is a multiplayer twin-stick bullet-hell space shooter featuring massiv
 ### Backend
 - **Language**: Rust
 - **Game Framework**: Bevy ECS 0.16
-- **Networking**: Lightyear 0.20 (WebTransport/WebSocket)
+- **Networking**: Lightyear 0.20 (WebSocket primary, WebTransport production)
 - **Physics**: Rapier 2D (integrated)
-- **Spatial Indexing**: R-tree (rstar crate)
+- **Spatial Indexing**: R-tree (rstar crate) + optimized spatial grid
 - **Entity Pooling**: Custom bounded pool with generation tracking
 - **Coordinate Systems**: PositionSyncPlugin for Transform/Position management
+- **Health System**: Integrated health tracking and visualization
 
 ### Frontend
 - **Language**: Rust
@@ -46,12 +47,16 @@ Boid Wars is a multiplayer twin-stick bullet-hell space shooter featuring massiv
 - **Networking**: Lightyear 0.20 ClientPlugins
 - **Build Tool**: wasm-pack + wasm-opt
 - **Audio**: Bevy Audio
+- **UI System**: Bevy UI for health bars and connection status
+- **Bundle Size**: ~3.5MB optimized WASM
 
 ### Infrastructure
 - **Hosting**: Fly.io (global edge deployment)
 - **CDN**: Cloudflare (static assets)
 - **Monitoring**: Fly.io metrics + Sentry
 - **Collision System**: Sensor-based projectile detection
+- **Deployment**: Docker multi-stage builds with health checks
+- **Security**: Non-root containers, minimal attack surface
 
 ## Architecture Decisions & Rationale
 
@@ -135,9 +140,35 @@ Responsibilities:
 - Entity replication via Lightyear ClientPlugins
 - Client-side prediction and interpolation
 - Particle effects via Bevy systems
+- Health bar system for players and boids
+- Connection status monitoring and display
+- Visual health feedback with follow-entity health bars
 ```
 
-### 4. Matchmaking Service
+### 3. Health System
+```
+Responsibilities:
+- Player health tracking and visualization
+- Boid health bars that follow entities
+- UI health bar components with background and fill
+- Health bar cleanup when entities are removed
+- Real-time health percentage updates
+- Automatic health bar positioning system
+```
+
+### 4. Boid Group System (Planned)
+```
+Responsibilities:
+- Hierarchical group control with formations
+- Territory-based patrol and defense behaviors
+- Coordinated combat with limited active shooters
+- Group archetypes: Assault, Defensive, Recon
+- Formation types: V-Formation, Circle Defense, Swarm Attack
+- Level of detail (LOD) optimization for distant groups
+- Group-based network replication for efficiency
+```
+
+### 5. Matchmaking Service
 ```
 Responsibilities:
 - Player queuing
@@ -166,7 +197,10 @@ Responsibilities:
 ## Performance Optimizations
 
 ### Server-Side
-- **Spatial Partitioning**: R-tree for O(log n) nearest-neighbor queries
+- **Spatial Partitioning**: 
+  - R-tree for O(log n) nearest-neighbor queries
+  - Optimized spatial grid with flat array storage for cache efficiency
+  - 100x100 cell grid for 10k+ entity performance
 - **Interest Management**: Only replicate entities within player viewport
 - **Delta Compression**: Send only changed component values
 - **Fixed Timestep**: Deterministic simulation for consistency
@@ -181,6 +215,10 @@ Responsibilities:
   - Performance metrics tracking
 - **Explicit System Ordering**: PhysicsSet enum for deterministic execution order
 - **Centralized Configuration**: PhysicsConfig and MonitoringConfig resources
+- **Memory Optimization**:
+  - Optimized physics system memory allocations
+  - Cache-friendly data structures for boid processing
+  - Batch processing for group-based operations
 
 ### Client-Side
 - **Bevy Sprite Batching**: Automatic instanced rendering for boid swarms
@@ -285,11 +323,21 @@ boid-wars/
 │   │   ├── position_sync.rs # Transform/Position synchronization
 │   │   ├── pool.rs          # Bounded object pooling
 │   │   ├── config.rs        # Physics configuration
-│   │   └── despawn_utils.rs # Safe entity cleanup
+│   │   ├── despawn_utils.rs # Safe entity cleanup
+│   │   ├── health.rs        # Health system implementation
+│   │   └── groups/          # Boid group system (planned)
 │   ├── benches/      # Performance benchmarks
 │   └── tests/        # Integration tests
 ├── bevy-client/      # Bevy WASM client
-└── deploy/           # Deployment configs
+│   ├── src/lib.rs    # Client implementation with health bars
+│   ├── demo.html     # Enhanced demo with connection status
+│   └── pkg/          # WASM build output
+├── docs/             # Documentation
+│   ├── deployment/   # Deployment guides and plans
+│   └── design/       # System design documents
+├── Dockerfile        # Multi-stage production build
+├── .dockerignore     # Docker build exclusions
+└── Makefile          # Unified build system
 
 # Legacy (for reference):
 ├── client/           # Original TypeScript client
@@ -377,6 +425,9 @@ Responsibilities:
 - UI/HUD rendering via Bevy UI
 - Entity replication via Lightyear ClientPlugins
 - Client-side prediction and interpolation
+- Health bar system for players and boids
+- Connection status monitoring and display
+- Visual health feedback with follow-entity health bars
 ```
 
 **Removed Component**: WASM Networking Bridge (no longer needed)
@@ -384,10 +435,13 @@ Responsibilities:
 ### Updated Repository Structure
 ```
 boid-wars/
-├── shared/           # Rust shared types
-├── server/           # Game server
-├── bevy-client/      # Bevy WASM client (NEW)
-└── deploy/           # Deployment configs
+├── shared/           # Rust shared types & protocol
+├── server/           # Game server with health system
+├── bevy-client/      # Bevy WASM client with health bars (NEW)
+├── docs/             # Documentation including deployment plans
+├── Dockerfile        # Multi-stage production build (NEW)
+├── .dockerignore     # Docker build exclusions (NEW)
+└── Makefile          # Unified Rust build system (UPDATED)
 ```
 
 ### Updated Performance Optimizations
@@ -450,14 +504,57 @@ The Bevy WASM client must meet these targets:
 - **WebSocket**: Used for certificate-free local development
 - **WebTransport**: Used in production with real certificates
 - **Unified Debugging**: Bevy dev tools for both client and server
-- **Hot Reload**: Trunk serve for client, cargo watch for server
+- **Hot Reload**: Bevy WASM client rebuilds, cargo watch for server
+- **Development Server**: Client runs on port 8081, server on 8080
 
 ### Build Commands
 ```bash
-make dev        # Start both client and server
+make dev        # Start both server and Bevy WASM client
 make check      # Run formatting, linting, tests
-make build      # Production builds
+make build      # Production builds (server + WASM client)
+make server     # Run only the game server
+make bevy-client # Build Bevy WASM client (development)
+make bevy-client-release # Build optimized Bevy WASM client
 ```
+
+### Docker Deployment Infrastructure
+
+The project includes a comprehensive Docker deployment setup optimized for production:
+
+#### Multi-Stage Dockerfile
+```dockerfile
+# Build stage: Rust server compilation
+FROM rust:alpine AS builder
+# - Installs build dependencies (clang, lld, musl-dev)
+# - Caches dependencies for faster rebuilds
+# - Builds optimized release binary
+
+# WASM build stage: Client compilation
+FROM rust:alpine AS wasm-builder
+# - Installs wasm-pack for client builds
+# - Builds WASM client with web target
+# - Generates optimized WASM bundle
+
+# Runtime stage: Minimal production image
+FROM alpine:3.18 AS runtime
+# - Minimal base image for security
+# - Non-root user for security
+# - Health check endpoint
+# - Static asset serving for WASM client
+```
+
+#### Production Features
+- **Security**: Non-root user, minimal attack surface
+- **Performance**: Optimized Rust release builds with wasm-opt
+- **Monitoring**: Built-in health check at `/health`
+- **Asset Serving**: Static WASM client and game assets
+- **Size Optimization**: Multi-stage builds minimize final image size
+
+#### Deployment Pipeline
+1. **GitHub Actions**: Automated builds on push
+2. **Docker Registry**: Image publishing and versioning
+3. **Fly.io Deploy**: Global edge deployment with `fly deploy`
+4. **CDN Integration**: Static asset distribution via Cloudflare
 
 ## Conclusion
 
