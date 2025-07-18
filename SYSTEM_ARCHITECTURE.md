@@ -37,6 +37,7 @@ Boid Wars is a multiplayer twin-stick bullet-hell space shooter featuring massiv
 - **Physics**: Rapier 2D (integrated)
 - **Spatial Indexing**: R-tree (rstar crate)
 - **Entity Pooling**: Custom bounded pool with generation tracking
+- **Coordinate Systems**: PositionSyncPlugin for Transform/Position management
 
 ### Frontend
 - **Language**: Rust
@@ -50,6 +51,7 @@ Boid Wars is a multiplayer twin-stick bullet-hell space shooter featuring massiv
 - **Hosting**: Fly.io (global edge deployment)
 - **CDN**: Cloudflare (static assets)
 - **Monitoring**: Fly.io metrics + Sentry
+- **Collision System**: Sensor-based projectile detection
 
 ## Architecture Decisions & Rationale
 
@@ -113,13 +115,14 @@ Responsibilities:
 - Boid AI simulation (10k+ enemies with flocking behaviors)
 - Physics simulation (Rapier2D with dual coordinate system)
 - Player input processing (thrust-based movement)
-- Hit detection (projectiles vs players/boids)
+- Hit detection (sensor-based projectiles vs players/boids)
 - Zone shrinking logic (battle royale mode) - planned
 - Temporary alliance management - planned
 - Game mode logic (battle royale, single player, co-op) - planned
 - Entity replication via Lightyear 0.20 - not yet functional
-- Projectile pooling for performance
-- Transform/Position synchronization
+- Bounded projectile pooling with generation tracking
+- Automatic Transform/Position synchronization with drift detection
+- Safe entity despawning with pooling support
 ```
 
 ### 2. Browser Client (Bevy WASM)
@@ -167,9 +170,17 @@ Responsibilities:
 - **Interest Management**: Only replicate entities within player viewport
 - **Delta Compression**: Send only changed component values
 - **Fixed Timestep**: Deterministic simulation for consistency
-- **Object Pooling**: Pre-allocated projectile pool with generation tracking
-- **Dual Coordinate Systems**: Transform (physics) and Position (network) with automatic sync
+- **Bounded Object Pooling**: 
+  - Pre-allocated projectile pool (100 initial, 500 max)
+  - Generation tracking prevents use-after-free bugs
+  - Pool health monitoring with utilization warnings
+  - Fallback to dynamic spawning when exhausted
+- **Dual Coordinate Systems**: 
+  - Transform (physics) and Position (network) with automatic sync
+  - Drift detection and correction
+  - Performance metrics tracking
 - **Explicit System Ordering**: PhysicsSet enum for deterministic execution order
+- **Centralized Configuration**: PhysicsConfig and MonitoringConfig resources
 
 ### Client-Side
 - **Bevy Sprite Batching**: Automatic instanced rendering for boid swarms
@@ -219,7 +230,16 @@ The game uses a dual coordinate system to maintain compatibility between physics
 - **Bounded Pool**: Fixed-size pool with generation tracking
 - **Pre-spawning**: 100 initial projectiles, max 500
 - **Generation Tracking**: Prevents use-after-free bugs
+- **Pool Health Monitoring**: Tracks utilization and warns at thresholds
+- **Safe Despawning**: SafeDespawnExt trait for pooling-aware cleanup
 - **Fallback**: Dynamic spawning when pool exhausted
+
+#### Collision System Improvements
+- **Sensor-Based Detection**: Projectiles use sensors for collision detection
+- **Gravity Handling**: Individual GravityScale(0.0) components for reliability
+- **Collision Groups**: Proper configuration for boid-projectile interactions
+- **Active Events**: COLLISION_EVENTS enabled on boids and obstacles
+- **Spawn Position Fix**: Projectiles spawn in aim direction, preventing self-collision
 
 #### System Execution Order
 ```rust
@@ -234,6 +254,14 @@ All physics constants are centralized in configuration resources:
 - `PhysicsConfig`: Movement speeds, forces, collision sizes
 - `MonitoringConfig`: Performance tracking intervals
 - No magic numbers in gameplay code
+
+### Safe Entity Management
+
+The system uses a comprehensive approach to entity lifecycle:
+- **SafeDespawnExt Trait**: Extension trait for safe entity despawning
+- **Despawning Component**: Marker for deferred despawn handling
+- **Pool-Aware Despawning**: Automatically returns pooled entities
+- **Generation Validation**: Prevents stale entity references
 
 ## Security Considerations
 
