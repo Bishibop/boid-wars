@@ -277,7 +277,7 @@ fn update_group_lod(
     for (group_pos, mut lod) in groups.iter_mut() {
         let nearest_player_dist = players.iter()
             .map(|p| p.0.distance(group_pos.0))
-            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .min_by(|a, b| a.total_cmp(b))
             .unwrap_or(f32::MAX);
             
         lod.level = match nearest_player_dist {

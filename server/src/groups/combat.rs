@@ -46,8 +46,8 @@ fn group_target_selection(
                 if let Some((player_entity, player_pos, player)) = players.iter()
                     .map(|(e, p, pl)| (e, p.0.distance(group_pos.0), pl))
                     .filter(|(_, dist, _)| *dist < detection_range)
-                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-                    .map(|(e, _, pl)| (e, players.get(e).unwrap().1, pl)) {
+                    .min_by(|a, b| a.1.total_cmp(&b.1))
+                    .and_then(|(e, _, pl)| players.get(e).ok().map(|p| (e, p.1, pl))) {
                     
                     // Check if any boid in the group has been attacked by this player
                     let group_under_attack = aggression.boid_aggression.values()
@@ -187,7 +187,7 @@ fn update_active_shooters(
             role_priority_a.cmp(&role_priority_b)
         } else {
             // Then by distance
-            a.1.partial_cmp(&b.1).unwrap()
+            a.1.total_cmp(&b.1)
         }
     });
     

@@ -107,6 +107,9 @@ pub fn update_flocking(
         .iter()
         .map(|(entity, pos, vel)| (entity, pos.0, vel.0))
         .collect();
+    
+    // Create a HashSet for O(1) boid lookups
+    let boid_entities: std::collections::HashSet<Entity> = boid_data.iter().map(|(e, _, _)| *e).collect();
 
     // Update each boid
     for (entity, pos, mut vel) in boids.iter_mut() {
@@ -179,13 +182,10 @@ pub fn update_flocking(
             acceleration += cohesion * config.cohesion_weight;
         }
 
-        // Calculate avoidance forces
-        let nearby = spatial_grid.get_nearby_entities(pos.0, search_radius);
-        
         // Early exit optimization: if only boids nearby, skip avoidance calculations
         let mut non_boid_count = 0;
         for &other_entity in &nearby {
-            if other_entity != entity && !boid_data.iter().any(|(e, _, _)| *e == other_entity) {
+            if other_entity != entity && !boid_entities.contains(&other_entity) {
                 non_boid_count += 1;
                 break; // Found at least one non-boid, proceed with avoidance
             }
@@ -200,7 +200,7 @@ pub fn update_flocking(
         if non_boid_count > 0 {
             for &other_entity in &nearby {
                 // Skip self and other boids (handled by flocking)
-                if other_entity == entity || boid_data.iter().any(|(e, _, _)| *e == other_entity) {
+                if other_entity == entity || boid_entities.contains(&other_entity) {
                     continue;
                 }
             

@@ -8,6 +8,16 @@ use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::time::{Duration, Instant};
 
+// Static names to avoid runtime allocations
+const POOLED_PROJECTILE_NAME: &str = "Pooled Projectile";
+const POOLED_BOID_PROJECTILE_NAME: &str = "Pooled Boid Projectile";
+const PROJECTILE_NAME: &str = "Projectile";
+const BOID_PROJECTILE_NAME: &str = "Boid Projectile";
+const TOP_WALL_NAME: &str = "Top Wall";
+const BOTTOM_WALL_NAME: &str = "Bottom Wall";
+const LEFT_WALL_NAME: &str = "Left Wall";
+const RIGHT_WALL_NAME: &str = "Right Wall";
+
 // Re-export for backward compatibility
 pub const BOID_RADIUS: f32 = 4.0; // This is duplicated in PhysicsConfig
 
@@ -26,6 +36,10 @@ pub struct PlayerAggression {
     pub aggressive_players: HashMap<Entity, Instant>,
     /// How long a player remains "aggressive" after attacking
     pub aggression_duration: Duration,
+    /// Last time cleanup was performed
+    last_cleanup: Instant,
+    /// How often to cleanup expired entries (in seconds)
+    cleanup_interval: f32,
 }
 
 impl Default for PlayerAggression {
@@ -33,6 +47,8 @@ impl Default for PlayerAggression {
         Self {
             aggressive_players: HashMap::new(),
             aggression_duration: Duration::from_secs(5), // Players stay aggressive for 5 seconds
+            last_cleanup: Instant::now(),
+            cleanup_interval: 1.0,
         }
     }
 }
@@ -52,9 +68,16 @@ impl PlayerAggression {
         }
     }
 
-    /// Clean up expired aggression entries
+    /// Clean up expired aggression entries (only runs periodically)
     pub fn cleanup_expired(&mut self) {
         let now = Instant::now();
+        
+        // Only cleanup if enough time has passed
+        if now.duration_since(self.last_cleanup).as_secs_f32() < self.cleanup_interval {
+            return;
+        }
+        
+        self.last_cleanup = now;
         self.aggressive_players.retain(|_, &mut last_attack| {
             now.duration_since(last_attack) < self.aggression_duration
         });
@@ -70,6 +93,10 @@ pub struct BoidAggression {
     pub aggression_duration: Duration,
     /// Radius within which boids alert their neighbors
     pub alert_radius: f32,
+    /// Last time cleanup was performed
+    last_cleanup: Instant,
+    /// How often to cleanup expired entries (in seconds)
+    cleanup_interval: f32,
 }
 
 /// Data structure for tracking boid aggression
@@ -90,6 +117,8 @@ impl FromWorld for BoidAggression {
             boid_aggression: HashMap::new(),
             aggression_duration: config.boid_aggression_memory_duration,
             alert_radius: config.boid_aggression_alert_radius,
+            last_cleanup: Instant::now(),
+            cleanup_interval: 1.0, // Cleanup every second instead of every frame
         }
     }
 }
@@ -137,9 +166,16 @@ impl BoidAggression {
         }
     }
 
-    /// Clean up expired aggression entries
+    /// Clean up expired aggression entries (only runs periodically)
     pub fn cleanup_expired(&mut self) {
         let now = Instant::now();
+        
+        // Only cleanup if enough time has passed
+        if now.duration_since(self.last_cleanup).as_secs_f32() < self.cleanup_interval {
+            return;
+        }
+        
+        self.last_cleanup = now;
         self.boid_aggression
             .retain(|_, data| now.duration_since(data.attack_time) < self.aggression_duration);
     }
@@ -518,7 +554,7 @@ fn setup_projectile_pool(
                 Sensor,
                 GameCollisionGroups::projectile(),
                 bevy_rapier2d::dynamics::GravityScale(0.0),
-                Name::new("Pooled Projectile"),
+                Name::new(POOLED_PROJECTILE_NAME),
                 // Position far off-screen
                 Transform::from_translation(config.projectile_pool_offscreen_position),
                 GlobalTransform::default(),
@@ -568,7 +604,7 @@ fn setup_boid_projectile_pool(
                 Sensor,
                 GameCollisionGroups::boid_projectile(),
                 bevy_rapier2d::dynamics::GravityScale(0.0),
-                Name::new("Pooled Boid Projectile"),
+                Name::new(POOLED_BOID_PROJECTILE_NAME),
                 // Position far off-screen
                 Transform::from_translation(config.projectile_pool_offscreen_position),
                 GlobalTransform::default(),
@@ -611,7 +647,7 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
             0.0,
         ),
         bevy_rapier2d::geometry::CollisionGroups::new(collision_groups.walls, Group::ALL),
-        Name::new("Top Wall"),
+        Name::new(TOP_WALL_NAME),
     ));
 
     // Bottom wall (y = height)
@@ -624,7 +660,7 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
             0.0,
         ),
         bevy_rapier2d::geometry::CollisionGroups::new(collision_groups.walls, Group::ALL),
-        Name::new("Bottom Wall"),
+        Name::new(BOTTOM_WALL_NAME),
     ));
 
     // Left wall (x = 0)
@@ -637,7 +673,7 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
             0.0,
         ),
         bevy_rapier2d::geometry::CollisionGroups::new(collision_groups.walls, Group::ALL),
-        Name::new("Left Wall"),
+        Name::new(LEFT_WALL_NAME),
     ));
 
     // Right wall (x = width)
@@ -650,7 +686,7 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
             0.0,
         ),
         bevy_rapier2d::geometry::CollisionGroups::new(collision_groups.walls, Group::ALL),
-        Name::new("Right Wall"),
+        Name::new(RIGHT_WALL_NAME),
     ));
 
     // Removed arena setup log
@@ -924,7 +960,7 @@ fn shooting_system(
                         Transform::from_translation(projectile_spawn_pos.extend(0.0)),
                         GlobalTransform::default(),
                         bevy_rapier2d::dynamics::GravityScale(0.0), // Disable gravity for projectiles
-                        Name::new("Projectile"),
+                        Name::new(PROJECTILE_NAME),
                     ))
                     .id()
             };
@@ -1065,7 +1101,7 @@ fn boid_shooting_system(
                         Transform::from_translation(projectile_spawn_pos.extend(0.0)),
                         GlobalTransform::default(),
                         bevy_rapier2d::dynamics::GravityScale(0.0),
-                        Name::new("Boid Projectile"),
+                        Name::new(BOID_PROJECTILE_NAME),
                     ))
                     .id()
             };
