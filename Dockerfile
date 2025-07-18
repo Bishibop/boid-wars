@@ -57,6 +57,9 @@ WORKDIR /app
 # Install build dependencies
 RUN apk add --no-cache clang lld musl-dev git
 
+# Add wasm32 target
+RUN rustup target add wasm32-unknown-unknown
+
 # Install wasm-pack via cargo
 RUN cargo install wasm-pack
 

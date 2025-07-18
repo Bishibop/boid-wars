@@ -21,6 +21,28 @@ const RIGHT_WALL_NAME: &str = "Right Wall";
 // Re-export for backward compatibility
 pub const BOID_RADIUS: f32 = 4.0; // This is duplicated in PhysicsConfig
 
+/// Pre-allocated buffers for hot path operations
+#[derive(Resource)]
+pub struct PhysicsBuffers {
+    /// Buffer for swarm communication alerts
+    pub alert_buffer: Vec<(Entity, Vec2)>,
+    /// Buffer for player collision data
+    pub player_collision_buffer: Vec<(Entity, Entity, f32, Option<Entity>)>,
+    /// Buffer for boid collision data
+    pub boid_collision_buffer: Vec<(Entity, Entity, f32, Option<Entity>)>,
+}
+
+impl Default for PhysicsBuffers {
+    fn default() -> Self {
+        Self {
+            // Pre-allocate reasonable capacities
+            alert_buffer: Vec::with_capacity(128),
+            player_collision_buffer: Vec::with_capacity(64),
+            boid_collision_buffer: Vec::with_capacity(256),
+        }
+    }
+}
+
 /// Marker component to indicate entity is being despawned
 #[derive(Component)]
 pub struct Despawning;
@@ -56,6 +78,21 @@ impl Default for PlayerAggression {
 impl PlayerAggression {
     /// Mark a player as aggressive
     pub fn mark_aggressive(&mut self, player: Entity) {
+        // Enforce maximum size to prevent unbounded growth
+        const MAX_TRACKED_PLAYERS: usize = 100;
+        
+        // If we're at capacity and this is a new player, remove the oldest entry
+        if self.aggressive_players.len() >= MAX_TRACKED_PLAYERS && !self.aggressive_players.contains_key(&player) {
+            // Find and remove the oldest entry
+            if let Some(&oldest_player) = self.aggressive_players
+                .iter()
+                .min_by_key(|(_, &time)| time)
+                .map(|(entity, _)| entity)
+            {
+                self.aggressive_players.remove(&oldest_player);
+            }
+        }
+        
         self.aggressive_players.insert(player, Instant::now());
     }
 
@@ -126,6 +163,21 @@ impl FromWorld for BoidAggression {
 impl BoidAggression {
     /// Record that a boid was attacked by a player
     pub fn record_attack(&mut self, boid: Entity, attacker: Entity) {
+        // Enforce maximum size to prevent unbounded growth
+        const MAX_TRACKED_BOIDS: usize = 1000;
+        
+        // If we're at capacity and this is a new boid, remove the oldest entry
+        if self.boid_aggression.len() >= MAX_TRACKED_BOIDS && !self.boid_aggression.contains_key(&boid) {
+            // Find and remove the oldest entry
+            if let Some(&oldest_boid) = self.boid_aggression
+                .iter()
+                .min_by_key(|(_, data)| data.attack_time)
+                .map(|(entity, _)| entity)
+            {
+                self.boid_aggression.remove(&oldest_boid);
+            }
+        }
+        
         self.boid_aggression.insert(
             boid,
             BoidAggressionData {
@@ -226,6 +278,7 @@ impl Plugin for PhysicsPlugin {
             .init_resource::<ArenaConfig>()
             .init_resource::<PlayerAggression>()
             .init_resource::<BoidAggression>()
+            .init_resource::<PhysicsBuffers>()
             .insert_resource(ProjectilePool::new(
                 ProjectileTemplate { collider_radius },
                 pool_size,
@@ -1162,20 +1215,22 @@ fn find_boid_target(
 /// System for swarm communication - alerts nearby boids when one is attacked
 fn swarm_communication_system(
     mut boid_aggression: ResMut<BoidAggression>,
+    mut buffers: ResMut<PhysicsBuffers>,
     spatial_grid: Res<crate::spatial_grid::SpatialGrid>,
     boid_query: Query<(Entity, &boid_wars_shared::Position), With<boid_wars_shared::Boid>>,
 ) {
-    // Find boids that were recently attacked and need to alert their neighbors
-    let mut boids_to_alert = Vec::new();
+    // Clear and reuse the pre-allocated buffer
+    buffers.alert_buffer.clear();
 
+    // Find boids that were recently attacked and need to alert their neighbors
     for (boid_entity, boid_pos) in boid_query.iter() {
         if boid_aggression.needs_alert(boid_entity) {
-            boids_to_alert.push((boid_entity, boid_pos.0));
+            buffers.alert_buffer.push((boid_entity, boid_pos.0));
         }
     }
 
     // For each boid that needs to send an alert, find nearby boids and share the threat
-    for (alerting_boid, alerting_pos) in boids_to_alert {
+    for &(alerting_boid, alerting_pos) in &buffers.alert_buffer {
         if let Some(attacker) = boid_aggression.get_attacker(alerting_boid) {
             // Find nearby boids within alert radius
             let nearby_entities =
@@ -1245,6 +1300,7 @@ fn projectile_system(
 fn collision_system(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
+    mut buffers: ResMut<PhysicsBuffers>,
     mut health_queries: ParamSet<(
         Query<(&mut Player, Option<&mut boid_wars_shared::Health>)>,
         Query<&mut boid_wars_shared::Health, With<boid_wars_shared::Boid>>,
@@ -1254,20 +1310,18 @@ fn collision_system(
     _obstacle_query: Query<Entity, With<boid_wars_shared::Obstacle>>,
     mut boid_aggression: ResMut<BoidAggression>,
 ) {
-    // Collect collision events and identify which are player vs boid collisions
-    let collision_data: Vec<_> = collision_events.read().collect();
+    // Clear and reuse pre-allocated buffers
+    buffers.player_collision_buffer.clear();
+    buffers.boid_collision_buffer.clear();
 
-    // First collect all the collision data we need
-    let mut player_collision_data = Vec::new();
-    let mut boid_collision_data = Vec::new();
-
-    for collision_event in &collision_data {
+    // Process collision events directly without intermediate collection
+    for collision_event in collision_events.read() {
         if let CollisionEvent::Started(entity1, entity2, _) = collision_event {
             // Check if entity1 is a projectile
             if let Ok(projectile) = projectile_query.get(*entity1) {
                 if health_queries.p0().get(*entity2).is_ok() {
                     // Projectile hit player
-                    player_collision_data.push((
+                    buffers.player_collision_buffer.push((
                         *entity1,
                         *entity2,
                         projectile.damage,
@@ -1275,7 +1329,7 @@ fn collision_system(
                     ));
                 } else if boid_entity_query.get(*entity2).is_ok() {
                     // Projectile hit boid
-                    boid_collision_data.push((
+                    buffers.boid_collision_buffer.push((
                         *entity1,
                         *entity2,
                         projectile.damage,
@@ -1288,7 +1342,7 @@ fn collision_system(
             if let Ok(projectile) = projectile_query.get(*entity2) {
                 if health_queries.p0().get(*entity1).is_ok() {
                     // Projectile hit player
-                    player_collision_data.push((
+                    buffers.player_collision_buffer.push((
                         *entity2,
                         *entity1,
                         projectile.damage,
@@ -1296,7 +1350,7 @@ fn collision_system(
                     ));
                 } else if boid_entity_query.get(*entity1).is_ok() {
                     // Projectile hit boid
-                    boid_collision_data.push((
+                    buffers.boid_collision_buffer.push((
                         *entity2,
                         *entity1,
                         projectile.damage,
@@ -1308,7 +1362,7 @@ fn collision_system(
     }
 
     // Process player collisions
-    for (projectile_entity, player_entity, damage, _owner) in player_collision_data {
+    for &(projectile_entity, player_entity, damage, _owner) in &buffers.player_collision_buffer {
         if let Ok((mut player, health_opt)) = health_queries.p0().get_mut(player_entity) {
             // Hit a player - apply damage with clamping
             player.health = (player.health - damage).max(0.0);
@@ -1328,7 +1382,7 @@ fn collision_system(
     }
 
     // Process boid collisions
-    for (projectile_entity, boid_entity, damage, owner) in boid_collision_data {
+    for &(projectile_entity, boid_entity, damage, owner) in &buffers.boid_collision_buffer {
         // Check if owner is a player first (before borrowing health)
         let owner_is_player = if let Some(owner_entity) = owner {
             health_queries.p0().get(owner_entity).is_ok()
