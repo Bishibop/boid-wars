@@ -173,6 +173,46 @@ impl SpatialGrid {
             None
         }
     }
+    
+    /// Get statistics about grid usage (useful for debugging)
+    #[allow(dead_code)]
+    pub fn get_stats(&self) -> SpatialGridStats {
+        let total_cells = self.cells.len();
+        let occupied_cells = self.cells.iter()
+            .filter(|cell| !cell.is_empty())
+            .count();
+        let total_entities = self.cells.iter()
+            .map(|cell| cell.len())
+            .sum();
+        let max_entities_per_cell = self.cells.iter()
+            .map(|cell| cell.len())
+            .max()
+            .unwrap_or(0);
+            
+        SpatialGridStats {
+            total_cells,
+            occupied_cells,
+            occupancy_ratio: occupied_cells as f32 / total_cells as f32,
+            total_entities,
+            avg_entities_per_occupied_cell: if occupied_cells > 0 {
+                total_entities as f32 / occupied_cells as f32
+            } else {
+                0.0
+            },
+            max_entities_per_cell,
+        }
+    }
+}
+
+/// Statistics about spatial grid usage
+#[derive(Debug, Clone)]
+pub struct SpatialGridStats {
+    pub total_cells: usize,
+    pub occupied_cells: usize,
+    pub occupancy_ratio: f32,
+    pub total_entities: usize,
+    pub avg_entities_per_occupied_cell: f32,
+    pub max_entities_per_cell: usize,
 }
 
 impl Default for SpatialGrid {
