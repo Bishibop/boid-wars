@@ -26,7 +26,8 @@ RUN mkdir -p server/src shared/src bevy-client/src server/benches && \
     echo "fn main() {}" > server/src/main.rs && \
     echo "// dummy" > shared/src/lib.rs && \
     echo "// dummy" > bevy-client/src/lib.rs && \
-    echo "// dummy benchmark" > server/benches/physics_benchmark.rs
+    echo "// dummy benchmark" > server/benches/physics_benchmark.rs && \
+    echo "// dummy benchmark" > server/benches/spatial_grid_bench.rs
 
 # Build dependencies (this layer will be cached)
 RUN --mount=type=cache,target=/usr/local/cargo/git/db \
@@ -76,7 +77,8 @@ COPY shared ./shared
 # Create dummy server directory to satisfy workspace
 RUN mkdir -p server/src server/benches && \
     echo "fn main() {}" > server/src/main.rs && \
-    echo "// dummy benchmark" > server/benches/physics_benchmark.rs
+    echo "// dummy benchmark" > server/benches/physics_benchmark.rs && \
+    echo "// dummy benchmark" > server/benches/spatial_grid_bench.rs
 
 # Build WASM client
 RUN cd bevy-client && wasm-pack build --target web --out-dir pkg --release

@@ -1,5 +1,6 @@
 use crate::config::{MonitoringConfig, PhysicsConfig};
 use crate::pool::{BoundedPool, PooledEntity};
+use crate::spatial_grid::SpatialGridSet;
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use boid_wars_shared;
@@ -301,7 +302,7 @@ impl Plugin for PhysicsPlugin {
                 FixedUpdate,
                 (
                     PhysicsSet::Input,
-                    PhysicsSet::AI.after(PhysicsSet::Input),
+                    PhysicsSet::AI.after(PhysicsSet::Input).after(SpatialGridSet::Update),
                     PhysicsSet::Movement.after(PhysicsSet::AI),
                     PhysicsSet::Combat.after(PhysicsSet::Movement),
                     PhysicsSet::Collision.after(PhysicsSet::Combat),
@@ -317,7 +318,9 @@ impl Plugin for PhysicsPlugin {
                 (
                     player_input_system.in_set(PhysicsSet::Input),
                     ai_player_system.in_set(PhysicsSet::AI),
-                    swarm_communication_system.in_set(PhysicsSet::AI),
+                    swarm_communication_system
+                        .in_set(PhysicsSet::AI)
+                        .in_set(SpatialGridSet::Read),
                     player_movement_system.in_set(PhysicsSet::Movement),
                     projectile_system.in_set(PhysicsSet::Movement),
                     collision_system.in_set(PhysicsSet::Collision),

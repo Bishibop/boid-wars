@@ -23,6 +23,7 @@ use debug_ui::DebugUIPlugin;
 use flocking::FlockingPlugin;
 use physics::{GameCollisionGroups, PhysicsPlugin, Ship, WeaponStats};
 use position_sync::{PositionSyncPlugin, SyncPosition};
+use spatial_grid::SpatialGridPlugin;
 
 fn main() {
     info!("Starting Boid Wars server...");
@@ -58,6 +59,7 @@ fn main() {
         .add_plugins(DebugUIPlugin)
         .add_plugins(ServerPlugins::new(lightyear_config))
         .add_plugins(ProtocolPlugin)
+        .add_plugins(SpatialGridPlugin)  // Must be before systems that use it
         .add_plugins(PhysicsPlugin)
         .add_plugins(PositionSyncPlugin)
         // .add_plugins(FlockingPlugin)  // DISABLED - using group system instead

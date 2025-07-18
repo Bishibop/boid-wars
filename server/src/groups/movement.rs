@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use boid_wars_shared::*;
-use crate::spatial_grid::SpatialGrid;
+use crate::spatial_grid::{SpatialGrid, SpatialGridSet};
 use crate::flocking::FlockingConfig;
 use crate::groups::{GroupLOD, LODLevel, BoidGroupConfig, calculate_formation_positions};
 use std::collections::HashMap;
@@ -10,12 +10,19 @@ pub struct GroupMovementPlugin;
 
 impl Plugin for GroupMovementPlugin {
     fn build(&self, app: &mut App) {
+        // Configure system ordering
         app.add_systems(
             FixedUpdate,
             (
-                group_movement_system,
-                formation_flocking_system.after(group_movement_system),
-                sync_group_boid_velocities.after(formation_flocking_system),
+                // Group movement determines high-level velocities
+                group_movement_system
+                    .before(SpatialGridSet::Read),
+                // Individual boid flocking can run in parallel with other spatial queries
+                formation_flocking_system
+                    .in_set(SpatialGridSet::Read),
+                // Velocity sync must happen after flocking
+                sync_group_boid_velocities
+                    .after(SpatialGridSet::Read),
             ),
         );
     }

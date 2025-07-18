@@ -1,16 +1,23 @@
 use bevy::prelude::*;
-use std::collections::HashMap;
+
+/// System sets for spatial grid operations
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum SpatialGridSet {
+    /// Systems that write to the spatial grid (update_spatial_grid)
+    Update,
+    /// Systems that read from the spatial grid (flocking, targeting, etc.)
+    Read,
+}
 
 /// Spatial grid for efficient neighbor queries
 #[derive(Resource)]
 pub struct SpatialGrid {
     cell_size: f32,
-    grid: HashMap<(i32, i32), Vec<Entity>>,
-    // Pre-allocated buffer for query results
-    query_buffer: Vec<Entity>,
-    // Cache for cell calculations
-    cells_per_row: i32,
-    cells_per_col: i32,
+    // Flat array indexed by row * cells_per_row + col for better cache locality
+    cells: Vec<Vec<Entity>>,
+    // Dimensions for index calculation
+    cells_per_row: usize,
+    cells_per_col: usize,
     #[allow(dead_code)]
     width: f32,
     #[allow(dead_code)]
@@ -19,17 +26,19 @@ pub struct SpatialGrid {
 
 impl SpatialGrid {
     pub fn new(width: f32, height: f32, cell_size: f32) -> Self {
-        let cells_per_row = (width / cell_size).ceil() as i32;
-        let cells_per_col = (height / cell_size).ceil() as i32;
+        let cells_per_row = (width / cell_size).ceil() as usize;
+        let cells_per_col = (height / cell_size).ceil() as usize;
+        let total_cells = cells_per_row * cells_per_col;
         
-        // Pre-size the HashMap based on expected density
-        let expected_cells = ((cells_per_row * cells_per_col) as f32 * 0.3) as usize;
-        let mut grid = HashMap::with_capacity(expected_cells);
+        // Pre-allocate all cells with reasonable capacity
+        let mut cells = Vec::with_capacity(total_cells);
+        for _ in 0..total_cells {
+            cells.push(Vec::with_capacity(8)); // Most cells will have <8 entities
+        }
         
         Self {
             cell_size,
-            grid,
-            query_buffer: Vec::with_capacity(256),
+            cells,
             cells_per_row,
             cells_per_col,
             width,
@@ -38,21 +47,16 @@ impl SpatialGrid {
     }
 
     pub fn clear(&mut self) {
-        // Clear but retain capacity to avoid reallocation
-        for (_, entities) in self.grid.iter_mut() {
-            entities.clear();
+        // Clear all cells but retain capacity to avoid reallocation
+        for cell in self.cells.iter_mut() {
+            cell.clear();
         }
-        // Remove empty cells to prevent unbounded growth
-        self.grid.retain(|_, entities| !entities.is_empty());
     }
 
     pub fn insert(&mut self, entity: Entity, position: Vec2) {
-        let cell = self.get_cell(position);
-        
-        // Pre-allocate with reasonable capacity for new cells
-        self.grid.entry(cell)
-            .or_insert_with(|| Vec::with_capacity(8))
-            .push(entity);
+        if let Some(idx) = self.get_cell_index(position) {
+            self.cells[idx].push(entity);
+        }
     }
 
     pub fn get_nearby_entities(&self, position: Vec2, radius: f32) -> Vec<Entity> {
@@ -76,15 +80,15 @@ impl SpatialGrid {
             let mut result = buffer.borrow_mut();
             result.clear();
             
-            let radius_squared = radius * radius;
+            let _radius_squared = radius * radius;
             let cell_radius = (radius / self.cell_size).ceil() as i32;
             let center_cell = self.get_cell(position);
             
             // Early bounds checking to avoid unnecessary iterations
             let min_x = (center_cell.0 - cell_radius).max(0);
-            let max_x = (center_cell.0 + cell_radius).min(self.cells_per_row - 1);
+            let max_x = (center_cell.0 + cell_radius).min(self.cells_per_row as i32 - 1);
             let min_y = (center_cell.1 - cell_radius).max(0);
-            let max_y = (center_cell.1 + cell_radius).min(self.cells_per_col - 1);
+            let max_y = (center_cell.1 + cell_radius).min(self.cells_per_col as i32 - 1);
             
             // Check all cells within radius
             for x in min_x..=max_x {
@@ -100,8 +104,9 @@ impl SpatialGrid {
                         continue;
                     }
                     
-                    if let Some(entities) = self.grid.get(&(x, y)) {
-                        for &entity in entities {
+                    // Use flat array index for better cache locality
+                    if let Some(idx) = self.get_cell_index_from_coords(x, y) {
+                        for &entity in &self.cells[idx] {
                             if let Some(filter_fn) = filter {
                                 if !filter_fn(entity) {
                                     continue;
@@ -149,6 +154,25 @@ impl SpatialGrid {
         let y = (position.y / self.cell_size).floor() as i32;
         (x, y)
     }
+    
+    /// Get flat array index from position, returns None if out of bounds
+    fn get_cell_index(&self, position: Vec2) -> Option<usize> {
+        let (x, y) = self.get_cell(position);
+        if x >= 0 && y >= 0 && x < self.cells_per_row as i32 && y < self.cells_per_col as i32 {
+            Some(y as usize * self.cells_per_row + x as usize)
+        } else {
+            None
+        }
+    }
+    
+    /// Get flat array index from cell coordinates, returns None if out of bounds
+    fn get_cell_index_from_coords(&self, x: i32, y: i32) -> Option<usize> {
+        if x >= 0 && y >= 0 && x < self.cells_per_row as i32 && y < self.cells_per_col as i32 {
+            Some(y as usize * self.cells_per_row + x as usize)
+        } else {
+            None
+        }
+    }
 }
 
 impl Default for SpatialGrid {
@@ -167,5 +191,31 @@ pub fn update_spatial_grid(
 
     for (entity, pos) in entities.iter() {
         spatial_grid.insert(entity, pos.0);
+    }
+}
+
+/// Plugin for spatial grid functionality
+pub struct SpatialGridPlugin;
+
+impl Plugin for SpatialGridPlugin {
+    fn build(&self, app: &mut App) {
+        app
+            // Initialize the spatial grid resource
+            .init_resource::<SpatialGrid>()
+            // Configure system sets for clear dependencies
+            .configure_sets(
+                FixedUpdate,
+                (
+                    SpatialGridSet::Update,
+                    SpatialGridSet::Read.after(SpatialGridSet::Update),
+                ),
+            )
+            // Add the update system
+            .add_systems(
+                FixedUpdate,
+                update_spatial_grid.in_set(SpatialGridSet::Update),
+            );
+        
+        info!("Spatial grid plugin initialized");
     }
 }

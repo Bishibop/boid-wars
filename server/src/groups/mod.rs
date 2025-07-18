@@ -238,7 +238,6 @@ impl Plugin for BoidGroupPlugin {
         app.init_resource::<BoidGroupConfig>();
         app.init_resource::<GroupIdCounter>();
         app.init_resource::<BoidIdCounter>();
-        app.init_resource::<crate::spatial_grid::SpatialGrid>(); // Add missing resource
         app.init_resource::<crate::flocking::FlockingConfig>(); // Add missing resource for debug UI
         
         // Add sub-plugins
@@ -256,12 +255,6 @@ impl Plugin for BoidGroupPlugin {
                 update_group_lod,
                 cleanup_empty_groups,
             ),
-        );
-
-        // Add spatial grid update system (previously in FlockingPlugin)
-        app.add_systems(
-            FixedUpdate,
-            crate::spatial_grid::update_spatial_grid,
         );
         
         info!("Boid group system initialized");

@@ -34,10 +34,6 @@ tracing = "0.1"
 version = "0.2"
 features = ["js"]
 
-# Override for WASM compatibility
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.3", features = ["js", "wasm_js"] }
-
 # WASM optimization
 [package.metadata.wasm-pack.profile.release]
 # More aggressive wasm-opt optimizations
