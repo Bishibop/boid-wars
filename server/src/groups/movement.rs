@@ -31,7 +31,7 @@ impl Plugin for GroupMovementPlugin {
 /// High-level group movement decisions
 fn group_movement_system(
     mut groups: Query<(&mut BoidGroup, &Position, &mut GroupVelocity, &GroupLOD)>,
-    players: Query<&Position, With<Player>>,
+    players: Query<(&Position, &Player)>,
     time: Res<Time>,
     config: Res<BoidGroupConfig>,
 ) {
@@ -51,11 +51,8 @@ fn group_movement_system(
             GroupBehavior::Engaging { primary_target, .. } => {
                 // Find target player by ID
                 if let Some(target_pos) = players.iter()
-                    .find(|p| {
-                        // In a real implementation, we'd match player ID
-                        true // For now, engage first player
-                    })
-                    .map(|p| p.0) {
+                    .find(|(_, p)| p.id as u32 == *primary_target)
+                    .map(|(pos, _)| pos.0) {
                     
                     let direction = (target_pos - pos.0).normalize_or_zero();
                     let preferred_range = match group.archetype {

@@ -120,6 +120,7 @@ pub struct BoidGroup {
     #[serde(skip)]
     pub active_shooters: HashSet<Entity>,
     pub max_shooters: u8,
+    pub initial_size: u32,
 }
 
 /// Boid membership component

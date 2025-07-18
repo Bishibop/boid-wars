@@ -30,6 +30,7 @@ struct ShooterRotationTimer(Timer);
 fn group_target_selection(
     mut groups: Query<(&mut BoidGroup, &Position)>,
     players: Query<(Entity, &Position, &Player), Without<Boid>>,
+    boids: Query<&BoidGroupMember, With<Boid>>,
     aggression: Res<BoidAggression>,
     config: Res<BoidGroupConfig>,
 ) {
@@ -80,13 +81,13 @@ fn group_target_selection(
                     };
                 } else {
                     // Check if should retreat
-                    let member_count = count_group_members(&group.id);
+                    let member_count = count_group_members(&group.id, &boids);
                     let retreat_threshold = match group.archetype {
                         GroupArchetype::Defensive { retreat_threshold, .. } => retreat_threshold,
                         _ => 0.3, // Default 30% losses
                     };
                     
-                    if member_count < (50.0 * (1.0 - retreat_threshold)) as usize {
+                    if member_count < (group.initial_size as f32 * (1.0 - retreat_threshold)) as usize {
                         // Retreat to home territory
                         group.behavior_state = GroupBehavior::Retreating {
                             rally_point: group.home_territory.center,
@@ -236,8 +237,9 @@ fn rotate_active_shooters(
     }
 }
 
-/// Count members of a group (placeholder - in real implementation would query)
-fn count_group_members(group_id: &u32) -> usize {
-    // This is a simplified version - in reality would query all boids with matching group_id
-    50 // Default group size
+/// Count members of a group
+fn count_group_members(group_id: &u32, boids: &Query<&BoidGroupMember, With<Boid>>) -> usize {
+    boids.iter()
+        .filter(|member| member.group_id == *group_id)
+        .count()
 }

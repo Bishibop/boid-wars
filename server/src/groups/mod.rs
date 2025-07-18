@@ -141,6 +141,7 @@ pub fn spawn_boid_group(
             },
             active_shooters: std::collections::HashSet::new(),
             max_shooters,
+            initial_size: size,
         },
         Position(territory.center),
         GroupVelocity(Vec2::ZERO),
