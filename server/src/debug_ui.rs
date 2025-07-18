@@ -194,6 +194,12 @@ fn debug_ui_system(
                 )
                 .on_hover_text("How strongly to turn away from boundaries");
 
+                ui.add(
+                    egui::Slider::new(&mut flocking_config.wall_avoidance_weight, 0.0..=10.0)
+                        .text("Wall Avoidance Weight"),
+                )
+                .on_hover_text("Strength of wall avoidance (uses predictive steering)");
+
                 // Collision Configuration Section
                 ui.separator();
                 ui.separator();
@@ -288,7 +294,14 @@ fn debug_ui_system(
                         max_speed: {:.1}\n\
                         max_force: {:.1}\n\
                         boundary_margin: {:.1}\n\
-                        boundary_turn_force: {:.1}\n\n\
+                        boundary_turn_force: {:.1}\n\
+                        wall_avoidance_weight: {:.1}\n\n\
+                        // Obstacle Avoidance\n\
+                        obstacle_avoidance_radius: {:.1}\n\
+                        obstacle_avoidance_weight: {:.1}\n\
+                        obstacle_prediction_time: {:.1}\n\
+                        player_avoidance_radius: {:.1}\n\
+                        player_avoidance_weight: {:.1}\n\n\
                         // Collision Configuration\n\
                         player_collider_size: {:.1}\n\
                         boid_radius: {:.1}\n\
@@ -304,6 +317,12 @@ fn debug_ui_system(
                         flocking_config.max_force,
                         flocking_config.boundary_margin,
                         flocking_config.boundary_turn_force,
+                        flocking_config.wall_avoidance_weight,
+                        flocking_config.obstacle_avoidance_radius,
+                        flocking_config.obstacle_avoidance_weight,
+                        flocking_config.obstacle_prediction_time,
+                        flocking_config.player_avoidance_radius,
+                        flocking_config.player_avoidance_weight,
                         physics_config.player_collider_size,
                         physics_config.boid_radius,
                         physics_config.projectile_collider_radius,
@@ -372,6 +391,93 @@ fn debug_ui_system(
                     flocking_config.alignment_weight = 2.0;
                     flocking_config.cohesion_weight = 1.0;
                     flocking_config.max_speed = 150.0;
+                }
+
+                // Obstacle Avoidance Configuration
+                ui.separator();
+                ui.separator();
+                ui.heading("🚧 Obstacle Avoidance");
+
+                // Obstacle Avoidance Parameters
+                ui.separator();
+                render_config_section(
+                    ui,
+                    "Obstacle Avoidance",
+                    &mut *clipboard_feedback,
+                    || format!(
+                        "obstacle_avoidance_radius: {:.1}\nobstacle_avoidance_weight: {:.1}\nobstacle_prediction_time: {:.1}",
+                        flocking_config.obstacle_avoidance_radius,
+                        flocking_config.obstacle_avoidance_weight,
+                        flocking_config.obstacle_prediction_time
+                    ),
+                );
+
+                ui.add(
+                    egui::Slider::new(&mut flocking_config.obstacle_avoidance_radius, 20.0..=200.0)
+                        .text("Obstacle Detection Radius"),
+                )
+                .on_hover_text("Distance at which boids detect obstacles");
+
+                ui.add(
+                    egui::Slider::new(&mut flocking_config.obstacle_avoidance_weight, 0.0..=10.0)
+                        .text("Obstacle Avoidance Weight"),
+                )
+                .on_hover_text("How strongly boids avoid obstacles");
+
+                ui.add(
+                    egui::Slider::new(&mut flocking_config.obstacle_prediction_time, 0.1..=2.0)
+                        .text("Obstacle Prediction Time"),
+                )
+                .on_hover_text("How far ahead boids predict collisions (seconds)");
+
+                // Player Avoidance Parameters
+                ui.separator();
+                render_config_section(
+                    ui,
+                    "Player Avoidance",
+                    &mut *clipboard_feedback,
+                    || format!(
+                        "player_avoidance_radius: {:.1}\nplayer_avoidance_weight: {:.1}",
+                        flocking_config.player_avoidance_radius,
+                        flocking_config.player_avoidance_weight
+                    ),
+                );
+
+                ui.add(
+                    egui::Slider::new(&mut flocking_config.player_avoidance_radius, 20.0..=300.0)
+                        .text("Player Detection Radius"),
+                )
+                .on_hover_text("Distance at which boids detect players");
+
+                ui.add(
+                    egui::Slider::new(&mut flocking_config.player_avoidance_weight, 0.0..=10.0)
+                        .text("Player Avoidance Weight"),
+                )
+                .on_hover_text("How strongly boids avoid players");
+
+                // Avoidance Presets
+                ui.separator();
+                ui.label("Avoidance Presets:");
+
+                if ui.button("Timid Boids").clicked() {
+                    flocking_config.obstacle_avoidance_radius = 120.0;
+                    flocking_config.obstacle_avoidance_weight = 5.0;
+                    flocking_config.player_avoidance_radius = 200.0;
+                    flocking_config.player_avoidance_weight = 4.0;
+                }
+
+                if ui.button("Balanced Avoidance").clicked() {
+                    flocking_config.obstacle_avoidance_radius = 80.0;
+                    flocking_config.obstacle_avoidance_weight = 3.0;
+                    flocking_config.player_avoidance_radius = 100.0;
+                    flocking_config.player_avoidance_weight = 2.5;
+                }
+
+                if ui.button("Aggressive Boids").clicked() {
+                    flocking_config.obstacle_avoidance_radius = 40.0;
+                    flocking_config.obstacle_avoidance_weight = 1.5;
+                    flocking_config.player_avoidance_radius = 50.0;
+                    flocking_config.player_avoidance_weight = 1.0;
                 }
             });
         });

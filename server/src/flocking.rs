@@ -22,6 +22,23 @@ pub struct FlockingConfig {
     // Boundary behavior
     pub boundary_margin: f32,
     pub boundary_turn_force: f32,
+    pub wall_avoidance_weight: f32,
+
+    // Obstacle avoidance
+    pub obstacle_avoidance_radius: f32,
+    pub obstacle_avoidance_weight: f32,
+    pub obstacle_prediction_time: f32,
+
+    // Player avoidance
+    pub player_avoidance_radius: f32,
+    pub player_avoidance_weight: f32,
+
+    // Avoidance thresholds and constants
+    pub obstacle_danger_zone: f32,
+    pub collision_threshold: f32,
+    pub corner_boost_multiplier: f32,
+    pub wall_prediction_time: f32,
+    pub min_velocity_threshold: f32,
 }
 
 impl Default for FlockingConfig {
@@ -44,6 +61,23 @@ impl Default for FlockingConfig {
             // Boundary behavior
             boundary_margin: 50.0,
             boundary_turn_force: 2.0,
+            wall_avoidance_weight: 4.0,
+
+            // Obstacle avoidance
+            obstacle_avoidance_radius: 80.0,
+            obstacle_avoidance_weight: 3.0,
+            obstacle_prediction_time: 0.5,
+
+            // Player avoidance
+            player_avoidance_radius: 100.0,
+            player_avoidance_weight: 2.5,
+
+            // Avoidance thresholds and constants
+            obstacle_danger_zone: 40.0,
+            collision_threshold: 30.0,
+            corner_boost_multiplier: 1.5,
+            wall_prediction_time: 1.0,
+            min_velocity_threshold: 0.1,
         }
     }
 }
@@ -51,6 +85,8 @@ impl Default for FlockingConfig {
 /// Simple flocking system that updates boid velocities
 pub fn update_flocking(
     mut boids: Query<(Entity, &Position, &mut Velocity), With<Boid>>,
+    obstacle_query: Query<(&Position, &boid_wars_shared::Obstacle), Without<Boid>>,
+    player_query: Query<(&Position, &Velocity), (With<boid_wars_shared::Player>, Without<Boid>)>,
     spatial_grid: Res<SpatialGrid>,
     config: Res<FlockingConfig>,
     time: Res<Time>,
@@ -58,11 +94,13 @@ pub fn update_flocking(
     let game_config = &*boid_wars_shared::GAME_CONFIG;
     let delta = time.delta_secs();
 
-    // Use largest radius for spatial query
+    // Use largest radius for spatial query - include avoidance radii
     let search_radius = config
         .separation_radius
         .max(config.alignment_radius)
-        .max(config.cohesion_radius);
+        .max(config.cohesion_radius)
+        .max(config.obstacle_avoidance_radius)
+        .max(config.player_avoidance_radius);
 
     // Collect all boid data first to avoid borrow checker issues
     let boid_data: Vec<(Entity, Vec2, Vec2)> = boids
@@ -141,20 +179,89 @@ pub fn update_flocking(
             acceleration += cohesion * config.cohesion_weight;
         }
 
-        // Apply boundary avoidance
-        let margin = config.boundary_margin;
-        let turn_force = config.boundary_turn_force;
-
-        if pos.0.x < margin {
-            acceleration.x += turn_force;
-        } else if pos.0.x > game_config.game_width - margin {
-            acceleration.x -= turn_force;
+        // Calculate avoidance forces
+        let nearby = spatial_grid.get_nearby_entities(pos.0, search_radius);
+        
+        // Early exit optimization: if only boids nearby, skip avoidance calculations
+        let mut non_boid_count = 0;
+        for &other_entity in &nearby {
+            if other_entity != entity && !boid_data.iter().any(|(e, _, _)| *e == other_entity) {
+                non_boid_count += 1;
+                break; // Found at least one non-boid, proceed with avoidance
+            }
+        }
+        
+        let mut obstacle_force = Vec2::ZERO;
+        let mut player_force = Vec2::ZERO;
+        let mut obstacle_count = 0;
+        let mut player_count = 0;
+        
+        // Only calculate avoidance if there are non-boid entities nearby
+        if non_boid_count > 0 {
+            for &other_entity in &nearby {
+                // Skip self and other boids (handled by flocking)
+                if other_entity == entity || boid_data.iter().any(|(e, _, _)| *e == other_entity) {
+                    continue;
+                }
+            
+            // Check for obstacles
+            if let Ok((obs_pos, obs)) = obstacle_query.get(other_entity) {
+                let force = calculate_obstacle_avoidance(
+                    pos.0, vel.0, obs_pos.0, 
+                    Vec2::new(obs.width / 2.0, obs.height / 2.0),
+                    config.obstacle_prediction_time,
+                    config.obstacle_danger_zone
+                );
+                obstacle_force += force;
+                obstacle_count += 1;
+            }
+            
+            // Check for players
+            if let Ok((player_pos, player_vel)) = player_query.get(other_entity) {
+                let distance = pos.0.distance(player_pos.0);
+                if distance < config.player_avoidance_radius {
+                    let force = calculate_dynamic_avoidance(
+                        pos.0, vel.0, player_pos.0, player_vel.0,
+                        config.player_avoidance_radius,
+                        config.collision_threshold
+                    );
+                    player_force += force;
+                    player_count += 1;
+                }
+            }
+            }
+        }
+        
+        // Apply averaged avoidance forces
+        if obstacle_count > 0 {
+            let avg_force = (obstacle_force / obstacle_count as f32)
+                .normalize_or_zero() * config.max_speed;
+            let steering = (avg_force - vel.0).clamp_length_max(config.max_force);
+            acceleration += steering * config.obstacle_avoidance_weight;
+        }
+        
+        if player_count > 0 {
+            let avg_force = (player_force / player_count as f32)
+                .normalize_or_zero() * config.max_speed;
+            let steering = (avg_force - vel.0).clamp_length_max(config.max_force);
+            acceleration += steering * config.player_avoidance_weight;
         }
 
-        if pos.0.y < margin {
-            acceleration.y += turn_force;
-        } else if pos.0.y > game_config.game_height - margin {
-            acceleration.y -= turn_force;
+        // Apply enhanced wall avoidance
+        let wall_force = calculate_wall_avoidance(
+            pos.0,
+            vel.0,
+            game_config.game_width,
+            game_config.game_height,
+            config.boundary_margin,
+            config.wall_prediction_time,
+            config.corner_boost_multiplier,
+            config.min_velocity_threshold,
+        );
+        if wall_force.length_squared() > 0.0 {
+            let desired_vel = wall_force * config.max_speed;
+            let steering = (desired_vel - vel.0).clamp_length_max(config.max_force);
+            acceleration += steering * config.wall_avoidance_weight;
         }
 
         // Update velocity
@@ -204,4 +311,176 @@ impl Plugin for FlockingPlugin {
 
         info!("Flocking plugin initialized with spatial grid");
     }
+}
+
+/// Calculate avoidance force for static obstacles
+fn calculate_obstacle_avoidance(
+    boid_pos: Vec2,
+    boid_vel: Vec2,
+    obstacle_pos: Vec2,
+    obstacle_half_size: Vec2,
+    prediction_time: f32,
+    danger_zone: f32,
+) -> Vec2 {
+    // Predict where boid will be
+    let future_pos = boid_pos + boid_vel * prediction_time;
+    
+    // Find closest point on obstacle AABB
+    let closest = Vec2::new(
+        future_pos.x.clamp(
+            obstacle_pos.x - obstacle_half_size.x,
+            obstacle_pos.x + obstacle_half_size.x
+        ),
+        future_pos.y.clamp(
+            obstacle_pos.y - obstacle_half_size.y,
+            obstacle_pos.y + obstacle_half_size.y
+        )
+    );
+    
+    // Calculate avoidance force
+    let diff = future_pos - closest;
+    let distance = diff.length();
+    
+    if distance < 0.001 {
+        // Inside obstacle, push out
+        Vec2::new(1.0, 0.0) // Default push direction
+    } else if distance < danger_zone {
+        // Exponential repulsion
+        diff.normalize() * (1.0 - distance / danger_zone).powi(2)
+    } else {
+        Vec2::ZERO
+    }
+}
+
+/// Calculate avoidance force for dynamic entities (players)
+fn calculate_dynamic_avoidance(
+    boid_pos: Vec2,
+    boid_vel: Vec2,
+    target_pos: Vec2,
+    target_vel: Vec2,
+    avoidance_radius: f32,
+    collision_threshold: f32,
+) -> Vec2 {
+    let relative_pos = target_pos - boid_pos;
+    let distance = relative_pos.length();
+    
+    if distance > avoidance_radius || distance < 0.001 {
+        return Vec2::ZERO;
+    }
+    
+    // Calculate relative velocity
+    let relative_vel = target_vel - boid_vel;
+    
+    // Time to closest approach
+    let time_to_closest = if relative_vel.length_squared() > 0.01 {
+        -(relative_pos.dot(relative_vel)) / relative_vel.length_squared()
+    } else {
+        0.0
+    };
+    
+    // Only avoid if approaching
+    if time_to_closest < 0.0 || time_to_closest > 2.0 {
+        // Not approaching or too far in future - simple repulsion
+        return -relative_pos.normalize_or_zero() * 
+            (1.0 - distance / avoidance_radius).powi(2);
+    }
+    
+    // Predict closest approach distance
+    let future_distance = (relative_pos + relative_vel * time_to_closest).length();
+    
+    if future_distance < collision_threshold {
+        // Calculate perpendicular avoidance
+        let avoidance_direction = if relative_pos.perp_dot(relative_vel) > 0.0 {
+            Vec2::new(-relative_pos.y, relative_pos.x).normalize()
+        } else {
+            Vec2::new(relative_pos.y, -relative_pos.x).normalize()
+        };
+        
+        avoidance_direction * (1.0 - future_distance / collision_threshold).powi(2)
+    } else {
+        Vec2::ZERO
+    }
+}
+
+/// Calculate enhanced wall avoidance with prediction
+fn calculate_wall_avoidance(
+    pos: Vec2,
+    vel: Vec2,
+    width: f32,
+    height: f32,
+    margin: f32,
+    prediction_time: f32,
+    corner_boost: f32,
+    min_velocity: f32,
+) -> Vec2 {
+    let mut force = Vec2::ZERO;
+    let speed = vel.length();
+    
+    // Edge case: very low velocity, use position-based repulsion only
+    if speed < min_velocity {
+        return calculate_static_wall_repulsion(pos, width, height, margin);
+    }
+    
+    let future_pos = pos + vel.normalize_or_zero() * speed.min(margin) * prediction_time;
+    
+    // Check each wall with stronger exponential repulsion
+    // Left wall
+    if future_pos.x < margin {
+        let distance_to_wall = future_pos.x.max(0.1); // Avoid division by zero
+        let strength = (1.0 - distance_to_wall / margin).powi(2);
+        force.x += strength;
+    }
+    // Right wall
+    else if future_pos.x > width - margin {
+        let distance_to_wall = (width - future_pos.x).max(0.1);
+        let strength = (1.0 - distance_to_wall / margin).powi(2);
+        force.x -= strength;
+    }
+    
+    // Top wall
+    if future_pos.y < margin {
+        let distance_to_wall = future_pos.y.max(0.1);
+        let strength = (1.0 - distance_to_wall / margin).powi(2);
+        force.y += strength;
+    }
+    // Bottom wall
+    else if future_pos.y > height - margin {
+        let distance_to_wall = (height - future_pos.y).max(0.1);
+        let strength = (1.0 - distance_to_wall / margin).powi(2);
+        force.y -= strength;
+    }
+    
+    // Add corner handling - stronger force when approaching corners
+    let x_near_wall = future_pos.x < margin || future_pos.x > width - margin;
+    let y_near_wall = future_pos.y < margin || future_pos.y > height - margin;
+    if x_near_wall && y_near_wall {
+        force *= corner_boost;
+    }
+    
+    force.normalize_or_zero()
+}
+
+/// Calculate static wall repulsion for zero/low velocity cases
+fn calculate_static_wall_repulsion(
+    pos: Vec2,
+    width: f32,
+    height: f32,
+    margin: f32,
+) -> Vec2 {
+    let mut force = Vec2::ZERO;
+    
+    // Simple position-based repulsion
+    if pos.x < margin {
+        force.x += (margin - pos.x) / margin;
+    } else if pos.x > width - margin {
+        force.x -= (pos.x - (width - margin)) / margin;
+    }
+    
+    if pos.y < margin {
+        force.y += (margin - pos.y) / margin;
+    } else if pos.y > height - margin {
+        force.y -= (pos.y - (height - margin)) / margin;
+    }
+    
+    force.normalize_or_zero()
 }
