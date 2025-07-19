@@ -3,6 +3,7 @@ use boid_wars_server::pool::{BoundedPool, PooledEntity};
 
 #[derive(Component, Clone)]
 struct TestComponent {
+    #[allow(dead_code)]
     value: i32,
 }
 
@@ -97,7 +98,7 @@ fn test_pool_exhaustion() {
 
     // Acquire all entities
     let handle1 = pool.acquire().unwrap();
-    let handle2 = pool.acquire().unwrap();
+    let _handle2 = pool.acquire().unwrap();
 
     // Pool should be exhausted
     assert!(pool.acquire().is_none());
@@ -127,7 +128,7 @@ fn test_pool_size_limits() {
 
 #[test]
 fn test_invalid_entity_handling() {
-    let mut app = App::new();
+    let _app = App::new();
     let mut pool = BoundedPool::new(TestComponent { value: 0 }, 10);
 
     // Create a fake handle
