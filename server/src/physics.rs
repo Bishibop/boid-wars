@@ -1332,6 +1332,9 @@ fn collision_system(
                         projectile.damage,
                         projectile.owner,
                     ));
+                } else if _obstacle_query.get(*entity2).is_ok() {
+                    // Projectile hit obstacle - despawn projectile
+                    commands.entity(*entity1).insert(Despawning);
                 }
             }
 
@@ -1353,6 +1356,9 @@ fn collision_system(
                         projectile.damage,
                         projectile.owner,
                     ));
+                } else if _obstacle_query.get(*entity1).is_ok() {
+                    // Projectile hit obstacle - despawn projectile
+                    commands.entity(*entity2).insert(Despawning);
                 }
             }
         }
