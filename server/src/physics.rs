@@ -557,14 +557,6 @@ pub enum ProjectileType {
     Laser,
 }
 
-/// Projectile physics properties
-#[derive(Component, Clone, Debug)]
-pub struct ProjectilePhysics {
-    pub velocity: Vec2,
-    pub spawn_time: Instant,
-    pub max_lifetime: Duration,
-}
-
 /// Weapon statistics
 #[derive(Component, Clone, Debug, Serialize, Deserialize)]
 pub struct WeaponStats {
@@ -578,8 +570,8 @@ pub struct WeaponStats {
 impl Default for WeaponStats {
     fn default() -> Self {
         Self {
-            damage: 10.0, // Updated for combat design: players deal 10 damage
-            fire_rate: 8.0, // Increased from 4.0 for faster firing
+            damage: 10.0,            // Updated for combat design: players deal 10 damage
+            fire_rate: 8.0,          // Increased from 4.0 for faster firing
             projectile_speed: 900.0, // Increased from 600.0 for faster bullets
             projectile_lifetime: Duration::from_secs(3),
             spread: 0.0,
@@ -638,11 +630,6 @@ fn setup_projectile_pool(
                     lifetime: timer,
                     speed: 0.0,
                 },
-                ProjectilePhysics {
-                    velocity: Vec2::ZERO,
-                    spawn_time: Instant::now(),
-                    max_lifetime: Duration::from_secs(1),
-                },
                 Velocity::zero(),
                 ProjectileTemplate {
                     collider_radius: template.collider_radius,
@@ -687,11 +674,6 @@ fn setup_boid_projectile_pool(
                     projectile_type: ProjectileType::Basic,
                     lifetime: timer,
                     speed: 400.0, // Slower than player projectiles
-                },
-                ProjectilePhysics {
-                    velocity: Vec2::ZERO,
-                    spawn_time: Instant::now(),
-                    max_lifetime: Duration::from_secs(2),
                 },
                 Velocity::zero(),
                 BoidProjectileTemplate {
@@ -985,11 +967,6 @@ fn shooting_system(
                         },
                         speed: weapon.projectile_speed,
                     },
-                    ProjectilePhysics {
-                        velocity: projectile_velocity,
-                        spawn_time: Instant::now(),
-                        max_lifetime: weapon.projectile_lifetime,
-                    },
                     // Reset physics state
                     Transform::from_translation(projectile_spawn_pos.extend(0.0)),
                     Velocity::linear(projectile_velocity),
@@ -1016,11 +993,6 @@ fn shooting_system(
                             projectile_type: ProjectileType::Basic,
                             lifetime: Timer::new(weapon.projectile_lifetime, TimerMode::Once),
                             speed: weapon.projectile_speed,
-                        },
-                        ProjectilePhysics {
-                            velocity: projectile_velocity,
-                            spawn_time: Instant::now(),
-                            max_lifetime: weapon.projectile_lifetime,
                         },
                         // Rapier2D components
                         RigidBody::Dynamic,
@@ -1054,6 +1026,7 @@ fn shooting_system(
 }
 
 /// System for boid shooting behavior
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn boid_shooting_system(
     mut commands: Commands,
     mut boid_query: Query<
@@ -1134,11 +1107,6 @@ fn boid_shooting_system(
                         },
                         speed: combat_stats.projectile_speed,
                     },
-                    ProjectilePhysics {
-                        velocity: projectile_velocity,
-                        spawn_time: Instant::now(),
-                        max_lifetime: Duration::from_secs(2),
-                    },
                     Transform::from_translation(projectile_spawn_pos.extend(0.0)),
                     Velocity::linear(projectile_velocity),
                     ActiveEvents::COLLISION_EVENTS,
@@ -1159,11 +1127,6 @@ fn boid_shooting_system(
                             projectile_type: ProjectileType::Basic,
                             lifetime: Timer::new(Duration::from_secs(2), TimerMode::Once),
                             speed: combat_stats.projectile_speed,
-                        },
-                        ProjectilePhysics {
-                            velocity: projectile_velocity,
-                            spawn_time: Instant::now(),
-                            max_lifetime: Duration::from_secs(2),
                         },
                         RigidBody::Dynamic,
                         Collider::ball(config.projectile_collider_radius),
@@ -1278,7 +1241,7 @@ fn swarm_communication_system(
 /// System to update projectiles
 fn projectile_system(
     mut commands: Commands,
-    mut projectile_query: Query<(Entity, &mut Projectile, &ProjectilePhysics, &Transform)>,
+    mut projectile_query: Query<(Entity, &mut Projectile, &Transform)>,
     time: Res<Time>,
     arena_config: Res<ArenaConfig>,
     mut debug_timer: Local<f32>,
@@ -1287,13 +1250,13 @@ fn projectile_system(
 
     let _active_projectiles = projectile_query
         .iter()
-        .filter(|(_, _, _, transform)| {
+        .filter(|(_, _, transform)| {
             let pos = transform.translation.truncate();
             pos.x > -500.0 && pos.y > -500.0 // Only count projectiles not in pool area
         })
         .count();
 
-    for (entity, mut projectile, _physics, transform) in projectile_query.iter_mut() {
+    for (entity, mut projectile, transform) in projectile_query.iter_mut() {
         // Skip pooled projectiles (they're positioned off-screen)
         let pos = transform.translation.truncate();
         if pos.x < -500.0 || pos.y < -500.0 {
@@ -1317,6 +1280,7 @@ fn projectile_system(
 }
 
 /// System to handle collisions
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn collision_system(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
@@ -1548,7 +1512,6 @@ fn return_projectiles_to_pool(
     }
 }
 
-
 /// System to clean up orphaned entities
 fn cleanup_system(
     mut commands: Commands,
@@ -1723,7 +1686,6 @@ pub fn spawn_ai_player(
             angular_damping: 1.0,
         },
         bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(10.0),
-        bevy_rapier2d::dynamics::GravityScale(0.0), // Set reasonable mass
         bevy_rapier2d::dynamics::GravityScale(0.0),
         lightyear::prelude::server::Replicate::default(),
         Name::new(format!("AI Player {player_id} ({ai_type:?})")),

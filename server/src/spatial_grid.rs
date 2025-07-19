@@ -100,7 +100,9 @@ impl SpatialGrid {
                         (cell_center_x - position.x).powi(2) + (cell_center_y - position.y).powi(2);
 
                     // Conservative check - if cell center is too far, skip
-                    if cell_dist_sq > (radius + self.cell_size * 0.7071).powi(2) {
+                    if cell_dist_sq
+                        > (radius + self.cell_size * std::f32::consts::FRAC_1_SQRT_2).powi(2)
+                    {
                         continue;
                     }
 

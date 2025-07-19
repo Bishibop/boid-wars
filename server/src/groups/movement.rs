@@ -103,6 +103,7 @@ fn group_movement_system(
 }
 
 /// Individual boid movement within group constraints
+#[allow(clippy::type_complexity)]
 fn formation_flocking_system(
     mut boids: Query<(Entity, &BoidGroupMember, &Position, &mut Velocity), With<Boid>>,
     groups: Query<(&BoidGroup, &Position, &GroupVelocity)>,
@@ -133,7 +134,7 @@ fn formation_flocking_system(
     for (entity, group_entity, _, pos, _, slot) in &boid_data {
         groups_map
             .entry(*group_entity)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push((*entity, *pos, *slot));
     }
 
@@ -144,7 +145,7 @@ fn formation_flocking_system(
 
             // BYPASS GROUP MOVEMENT - Use pure individual flocking
             // Keep the group structure but ignore group velocity entirely
-            for (_i, (entity, pos, _slot)) in members.iter().enumerate() {
+            for (entity, pos, _slot) in members.iter() {
                 if let Ok((_, _, position, mut vel)) = boids.get_mut(*entity) {
                     // Get search radius including avoidance radii
                     let search_radius = config
@@ -179,6 +180,7 @@ fn formation_flocking_system(
 }
 
 /// Calculate full flocking forces including avoidance
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn calculate_full_flocking_forces(
     entity: Entity,
     position: &Position,
@@ -257,13 +259,11 @@ fn calculate_full_flocking_forces(
     }
 
     // Obstacle avoidance
-    let obstacle_force =
-        calculate_obstacle_avoidance(position, velocity, obstacle_query, config);
+    let obstacle_force = calculate_obstacle_avoidance(position, velocity, obstacle_query, config);
     total_force += obstacle_force;
 
     // Player avoidance
-    let player_force =
-        calculate_player_avoidance(position, player_query, config);
+    let player_force = calculate_player_avoidance(position, player_query, config);
     total_force += player_force;
 
     // Wall avoidance
@@ -321,6 +321,7 @@ fn calculate_obstacle_avoidance(
 }
 
 /// Calculate player avoidance force
+#[allow(clippy::type_complexity)]
 fn calculate_player_avoidance(
     position: &Position,
     player_query: &Query<(&Position, &Velocity), (With<boid_wars_shared::Player>, Without<Boid>)>,
@@ -333,7 +334,6 @@ fn calculate_player_avoidance(
         let distance = diff.length();
 
         if distance < config.player_avoidance_radius && distance > 0.0 {
-
             // Avoidance direction
             let avoidance_direction = if diff.length() > 0.0 {
                 diff.normalize()

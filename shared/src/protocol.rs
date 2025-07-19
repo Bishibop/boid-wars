@@ -178,17 +178,17 @@ pub enum GroupArchetype {
 /// Dynamic formations
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Formation {
-    VFormation { 
-        angle: f32, 
+    VFormation {
+        angle: f32,
         spacing: f32,
         leader_boost: f32,
     },
-    CircleDefense { 
+    CircleDefense {
         radius: f32,
         layers: u8,
         rotation_speed: f32,
     },
-    SwarmAttack { 
+    SwarmAttack {
         spread: f32,
         convergence_point: Vec2,
     },
@@ -222,20 +222,20 @@ impl Formation {
 /// Group AI states
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum GroupBehavior {
-    Patrolling { 
-        route: Vec<Vec2>, 
+    Patrolling {
+        route: Vec<Vec2>,
         current_waypoint: usize,
     },
-    Engaging { 
+    Engaging {
         primary_target: u32, // Target player ID instead of Entity
         #[serde(skip)]
         secondary_targets: Vec<u32>,
     },
-    Retreating { 
+    Retreating {
         rally_point: Vec2,
         speed_multiplier: f32,
     },
-    Defending { 
+    Defending {
         position: Vec2,
         radius: f32,
     },
@@ -255,7 +255,7 @@ pub struct TerritoryData {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum ArenaZone {
     Outer,  // Recon groups
-    Middle, // Defensive groups  
+    Middle, // Defensive groups
     Inner,  // Assault groups
     Center, // Boss groups (future)
 }
@@ -389,7 +389,7 @@ impl Plugin for ProtocolPlugin {
         // BoidCombatState is server-only and not registered for replication
         app.register_component::<Obstacle>(ChannelDirection::ServerToClient);
         app.register_component::<Projectile>(ChannelDirection::ServerToClient);
-        
+
         // Group system components - NOT replicated to save bandwidth
         // Groups are server-side only for AI coordination
 

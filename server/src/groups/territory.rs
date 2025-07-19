@@ -185,7 +185,7 @@ fn generate_patrol_points(
 }
 
 /// Calculate neighboring territories based on distance
-fn calculate_territory_neighbors(territories: &mut Vec<TerritoryData>) {
+fn calculate_territory_neighbors(territories: &mut [TerritoryData]) {
     let neighbor_distance = 400.0; // Territories within this distance are neighbors
 
     for i in 0..territories.len() {

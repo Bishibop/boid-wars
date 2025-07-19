@@ -39,7 +39,7 @@ pub struct PhysicsConfig {
 
     // Boid physics
     pub boid_radius: f32, // Radius for ball collider (12.0 for 24x24 sprite)
-    
+
     // Boid aggression
     pub boid_aggression_memory_duration: Duration,
     pub boid_aggression_alert_radius: f32,
@@ -83,7 +83,7 @@ impl Default for PhysicsConfig {
 
             // Boid physics
             boid_radius: 12.0, // Radius for 24x24 sprite (diameter = 24)
-            
+
             // Boid aggression
             boid_aggression_memory_duration: Duration::from_secs(5),
             boid_aggression_alert_radius: 150.0,

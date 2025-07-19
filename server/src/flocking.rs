@@ -83,6 +83,7 @@ impl Default for FlockingConfig {
 }
 
 /// Simple flocking system that updates boid velocities
+#[allow(clippy::type_complexity)]
 pub fn update_flocking(
     mut boids: Query<(Entity, &Position, &mut Velocity), With<Boid>>,
     obstacle_query: Query<(&Position, &boid_wars_shared::Obstacle), Without<Boid>>,
@@ -385,7 +386,7 @@ fn calculate_dynamic_avoidance(
     };
 
     // Only avoid if approaching
-    if time_to_closest < 0.0 || time_to_closest > 2.0 {
+    if !(0.0..=2.0).contains(&time_to_closest) {
         // Not approaching or too far in future - simple repulsion
         return -relative_pos.normalize_or_zero() * (1.0 - distance / avoidance_radius).powi(2);
     }
@@ -408,6 +409,7 @@ fn calculate_dynamic_avoidance(
 }
 
 /// Calculate enhanced wall avoidance with prediction
+#[allow(clippy::too_many_arguments)]
 fn calculate_wall_avoidance(
     pos: Vec2,
     vel: Vec2,

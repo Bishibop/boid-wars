@@ -87,7 +87,7 @@ fn debug_ui_system(
                 render_config_section(
                     ui,
                     "Detection Radii",
-                    &mut *clipboard_feedback,
+                    &mut clipboard_feedback,
                     || format!(
                         "separation_radius: {:.1}\nalignment_radius: {:.1}\ncohesion_radius: {:.1}",
                         flocking_config.separation_radius,
@@ -119,7 +119,7 @@ fn debug_ui_system(
                 render_config_section(
                     ui,
                     "Force Weights",
-                    &mut *clipboard_feedback,
+                    &mut clipboard_feedback,
                     || format!(
                         "separation_weight: {:.1}\nalignment_weight: {:.1}\ncohesion_weight: {:.1}",
                         flocking_config.separation_weight,
@@ -151,7 +151,7 @@ fn debug_ui_system(
                 render_config_section(
                     ui,
                     "Movement Parameters",
-                    &mut *clipboard_feedback,
+                    &mut clipboard_feedback,
                     || format!(
                         "max_speed: {:.1}\nmax_force: {:.1}",
                         flocking_config.max_speed,
@@ -174,7 +174,7 @@ fn debug_ui_system(
                 render_config_section(
                     ui,
                     "Boundary Behavior",
-                    &mut *clipboard_feedback,
+                    &mut clipboard_feedback,
                     || format!(
                         "boundary_margin: {:.1}\nboundary_turn_force: {:.1}",
                         flocking_config.boundary_margin,
@@ -210,7 +210,7 @@ fn debug_ui_system(
                 render_config_section(
                     ui,
                     "Player Collision",
-                    &mut *clipboard_feedback,
+                    &mut clipboard_feedback,
                     || format!(
                         "player_collider_size: {:.1}",
                         physics_config.player_collider_size
@@ -228,7 +228,7 @@ fn debug_ui_system(
                 render_config_section(
                     ui,
                     "Boid Collision",
-                    &mut *clipboard_feedback,
+                    &mut clipboard_feedback,
                     || format!(
                         "boid_radius: {:.1}",
                         physics_config.boid_radius
@@ -246,7 +246,7 @@ fn debug_ui_system(
                 render_config_section(
                     ui,
                     "Projectile Collision",
-                    &mut *clipboard_feedback,
+                    &mut clipboard_feedback,
                     || format!(
                         "projectile_collider_radius: {:.1}",
                         physics_config.projectile_collider_radius
@@ -259,14 +259,14 @@ fn debug_ui_system(
                     egui::Slider::new(&mut physics_config.projectile_collider_radius, 0.5..=max_projectile_radius)
                         .text("Projectile Radius"),
                 )
-                .on_hover_text(format!("Radius of projectile collision circle (max: {:.1})", max_projectile_radius));
+                .on_hover_text(format!("Radius of projectile collision circle (max: {max_projectile_radius:.1})"));
 
                 // Wall Collision
                 ui.separator();
                 render_config_section(
                     ui,
                     "Wall Collision",
-                    &mut *clipboard_feedback,
+                    &mut clipboard_feedback,
                     || format!(
                         "arena_wall_thickness: {:.1}",
                         physics_config.arena_wall_thickness
@@ -337,14 +337,14 @@ fn debug_ui_system(
                 ui.heading("📊 Statistics");
 
                 let boid_count = boids.iter().count();
-                ui.label(format!("Boid Count: {}", boid_count));
+                ui.label(format!("Boid Count: {boid_count}"));
                 ui.label(format!("FPS: {:.1}", 1.0 / time.delta_secs()));
 
                 // Calculate average speed
                 if boid_count > 0 {
                     let avg_speed: f32 =
                         boids.iter().map(|vel| vel.0.length()).sum::<f32>() / boid_count as f32;
-                    ui.label(format!("Avg Speed: {:.1}", avg_speed));
+                    ui.label(format!("Avg Speed: {avg_speed:.1}"));
                 }
 
                 // Show spatial grid is active
@@ -403,7 +403,7 @@ fn debug_ui_system(
                 render_config_section(
                     ui,
                     "Obstacle Avoidance",
-                    &mut *clipboard_feedback,
+                    &mut clipboard_feedback,
                     || format!(
                         "obstacle_avoidance_radius: {:.1}\nobstacle_avoidance_weight: {:.1}\nobstacle_prediction_time: {:.1}",
                         flocking_config.obstacle_avoidance_radius,
@@ -435,7 +435,7 @@ fn debug_ui_system(
                 render_config_section(
                     ui,
                     "Player Avoidance",
-                    &mut *clipboard_feedback,
+                    &mut clipboard_feedback,
                     || format!(
                         "player_avoidance_radius: {:.1}\nplayer_avoidance_weight: {:.1}",
                         flocking_config.player_avoidance_radius,

@@ -201,7 +201,7 @@ fn test_projectile_lifecycle() {
     );
 
     // Find the projectile
-    let world = app.world();
+    let world = app.world_mut();
     let projectile_count = world
         .query::<&boid_wars_server::physics::Projectile>()
         .iter(world)

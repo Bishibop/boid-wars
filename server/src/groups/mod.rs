@@ -1,5 +1,5 @@
-use crate::physics::GameCollisionGroups;
 use crate::config::PhysicsConfig;
+use crate::physics::GameCollisionGroups;
 use crate::position_sync::SyncPosition;
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
@@ -129,7 +129,7 @@ pub fn spawn_boid_group(
     group_id_counter.0 += 1;
 
     // Calculate max shooters based on group size (much more conservative)
-    let max_shooters = (size as f32 * 0.1).ceil().max(1.0).min(3.0) as u8; // 10% of group, max 3 shooters
+    let max_shooters = (size as f32 * 0.1).ceil().clamp(1.0, 3.0) as u8; // 10% of group, max 3 shooters
 
     // Spawn group entity
     let group = commands

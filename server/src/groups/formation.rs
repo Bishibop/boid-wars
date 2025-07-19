@@ -184,19 +184,19 @@ fn update_formation_transitions(
     )>,
 ) {
     for (mut group, _) in groups.iter_mut() {
-        let should_change_formation = match (&group.behavior_state, &group.current_formation) {
-            (boid_wars_shared::GroupBehavior::Engaging { .. }, Formation::VFormation { .. }) => {
-                true
-            }
-            (boid_wars_shared::GroupBehavior::Defending { .. }, Formation::SwarmAttack { .. }) => {
-                true
-            }
+        let should_change_formation = matches!(
+            (&group.behavior_state, &group.current_formation),
             (
+                boid_wars_shared::GroupBehavior::Engaging { .. },
+                Formation::VFormation { .. }
+            ) | (
+                boid_wars_shared::GroupBehavior::Defending { .. },
+                Formation::SwarmAttack { .. }
+            ) | (
                 boid_wars_shared::GroupBehavior::Patrolling { .. },
                 Formation::CircleDefense { .. },
-            ) => true,
-            _ => false,
-        };
+            )
+        );
 
         if should_change_formation {
             group.current_formation = match &group.behavior_state {

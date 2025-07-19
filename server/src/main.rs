@@ -86,10 +86,9 @@ fn main() {
     app.add_plugins(DebugUIPlugin)
         .add_plugins(ServerPlugins::new(lightyear_config))
         .add_plugins(ProtocolPlugin)
-        .add_plugins(SpatialGridPlugin)  // Must be before systems that use it
+        .add_plugins(SpatialGridPlugin) // Must be before systems that use it
         .add_plugins(PhysicsPlugin)
         .add_plugins(PositionSyncPlugin)
-        // .add_plugins(FlockingPlugin)  // DISABLED - using group system instead
         .add_plugins(groups::BoidGroupPlugin)
         .add_plugins(BoidWarsServerPlugin);
     
@@ -141,7 +140,6 @@ impl Plugin for BoidWarsServerPlugin {
 
         // Add game systems
         app.add_systems(Update, (log_status, spawn_collision_objects_delayed));
-        // Boid movement is handled by FlockingPlugin
         // Note: Physics systems (player_input_system, etc.) are added by PhysicsPlugin in FixedUpdate
     }
 }
@@ -184,20 +182,20 @@ fn spawn_collision_objects_delayed(
 // Helper function to spawn peaceful boids using the group system
 fn spawn_boid_flock(commands: &mut Commands, physics_config: &PhysicsConfig) {
     let _game_config = &*GAME_CONFIG;
-    
     // Get resources
     let mut group_id_counter = groups::GroupIdCounter::default();
     let mut boid_id_counter = groups::BoidIdCounter::default();
-    
+
     // Spawn groups in different zones
     let mut spawned_groups = 0;
-    
+
     // Create a simple territory for testing (no complex generation)
     let simple_territory = TerritoryData {
         center: Vec2::new(300.0, 300.0), // Just place it in the arena
         radius: 100.0,
         zone: ArenaZone::Outer,
-        patrol_points: vec![ // Simple patrol points
+        patrol_points: vec![
+            // Simple patrol points
             Vec2::new(250.0, 250.0),
             Vec2::new(350.0, 250.0),
             Vec2::new(350.0, 350.0),
@@ -205,7 +203,7 @@ fn spawn_boid_flock(commands: &mut Commands, physics_config: &PhysicsConfig) {
         ],
         neighboring_territories: vec![],
     };
-    
+
     // Start with just 1 group for testing
     groups::spawn_boid_group(
         commands,
@@ -220,7 +218,7 @@ fn spawn_boid_flock(commands: &mut Commands, physics_config: &PhysicsConfig) {
         physics_config,
     );
     spawned_groups += 1;
-    
+
     // Comment out other groups for now
     /*
     // Spawn Defensive groups in middle zone
@@ -240,9 +238,9 @@ fn spawn_boid_flock(commands: &mut Commands, physics_config: &PhysicsConfig) {
         spawned_groups += 1;
     }
     */
-    
+
     info!("Spawned {} boid groups with territories", spawned_groups);
-    
+
     // Update resource counters
     commands.insert_resource(group_id_counter);
     commands.insert_resource(boid_id_counter);

@@ -88,7 +88,7 @@ pub fn run() {
         client_settings.performance_log_interval,
         TimerMode::Repeating,
     )));
-    
+
     // Initialize debug settings
     app.init_resource::<DebugSettings>();
 
@@ -110,9 +110,7 @@ pub fn run() {
             handle_camera_zoom,
             smooth_interpolation_system,
             toggle_debug_display,
-            render_collision_outlines,
-            update_collision_outline_sizes,
-            cleanup_collision_outlines,
+            debug_collision_system,
         ),
     );
 
@@ -381,7 +379,6 @@ struct ProjectileSprite(Handle<Image>);
 struct DebugSettings {
     show_collisions: bool,
     collision_color: Color,
-    collision_line_width: f32,
     player_scale: f32,
     boid_scale: f32,
 }
@@ -391,7 +388,6 @@ impl Default for DebugSettings {
         Self {
             show_collisions: false,
             collision_color: Color::srgba(0.0, 1.0, 0.0, 0.5), // Semi-transparent green
-            collision_line_width: 2.0,
             player_scale: 1.0, // 1.0 = actual size, 2.0 = double size, etc.
             boid_scale: 1.0,   // Separate scale for boids
         }
@@ -401,11 +397,9 @@ impl Default for DebugSettings {
 /// Component to mark collision outline entities
 #[derive(Component)]
 struct CollisionOutline {
-    entity: Entity, // The entity this outline belongs to
+    entity: Entity,  // The entity this outline belongs to
     is_player: bool, // true for player, false for boid
 }
-
-
 
 /// Marker component for background entities
 #[derive(Component)]
@@ -460,13 +454,23 @@ type UnrenderedObstacle = (With<Obstacle>, Without<Sprite>);
 type UnrenderedProjectile = (With<Projectile>, Without<Sprite>);
 
 /// Render networked entities (players, boids, obstacles, and projectiles from server)
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn render_networked_entities(
     mut commands: Commands,
     player_sprite: Res<PlayerSprite>,
     enemy_sprite: Res<EnemySprite>,
     projectile_sprite: Res<ProjectileSprite>,
     asset_server: Res<AssetServer>,
-    players: Query<(Entity, &Position, Option<&Rotation>, &Player, Option<&Velocity>), UnrenderedPlayer>,
+    players: Query<
+        (
+            Entity,
+            &Position,
+            Option<&Rotation>,
+            &Player,
+            Option<&Velocity>,
+        ),
+        UnrenderedPlayer,
+    >,
     boids: Query<(Entity, &Position, Option<&Rotation>, Option<&Velocity>), UnrenderedBoid>,
     obstacles: Query<(Entity, &Position, &Obstacle), UnrenderedObstacle>,
     projectiles: Query<(Entity, &Position, Option<&Velocity>), UnrenderedProjectile>,
@@ -485,12 +489,14 @@ fn render_networked_entities(
     // Add visual representation to networked players
     for (entity, position, rotation, _player, _velocity) in players.iter() {
         let mut transform = Transform::from_translation(Vec3::new(position.x, position.y, 3.0));
-        
+
         // Apply rotation if available
         if let Some(rot) = rotation {
-            transform = transform.with_rotation(Quat::from_rotation_z(rot.angle - std::f32::consts::FRAC_PI_2));
+            transform = transform.with_rotation(Quat::from_rotation_z(
+                rot.angle - std::f32::consts::FRAC_PI_2,
+            ));
         }
-        
+
         commands.entity(entity).insert((
             Sprite {
                 image: player_sprite.0.clone(),
@@ -590,6 +596,7 @@ fn render_networked_entities(
 }
 
 /// Sync Position and Rotation components to Transform for rendering
+#[allow(clippy::type_complexity)]
 fn sync_position_to_transform(
     mut commands: Commands,
     mut query: Query<
@@ -606,8 +613,16 @@ fn sync_position_to_transform(
         Or<(Changed<Position>, Changed<Rotation>, Changed<Velocity>)>,
     >,
 ) {
-    for (entity, position, rotation, velocity, mut transform, player, projectile, smooth_transform) in
-        query.iter_mut()
+    for (
+        entity,
+        position,
+        rotation,
+        velocity,
+        mut transform,
+        player,
+        projectile,
+        smooth_transform,
+    ) in query.iter_mut()
     {
         // Check if this entity needs smooth interpolation (only boids, not players or projectiles)
         let needs_smoothing = player.is_none() && projectile.is_none();
@@ -667,7 +682,7 @@ fn sync_position_to_transform(
             // Players and projectiles get direct position updates (no smoothing)
             transform.translation.x = position.x;
             transform.translation.y = position.y;
-            
+
             // Handle rotation for projectiles (players have their own rotation system)
             if projectile.is_some() {
                 // Use velocity direction for projectile rotation
@@ -682,7 +697,6 @@ fn sync_position_to_transform(
         }
     }
 }
-
 
 /// Update player sprite rotation to face mouse cursor
 fn update_player_rotation_to_mouse(
@@ -856,6 +870,7 @@ fn cleanup_health_bars(
 }
 
 /// Enhanced smooth interpolation system for boids with velocity-based smoothing
+#[allow(clippy::type_complexity)]
 fn smooth_interpolation_system(
     mut query: Query<
         (&mut Transform, &mut SmoothTransform),
@@ -935,38 +950,67 @@ fn toggle_debug_display(
 ) {
     if keys.just_pressed(KeyCode::KeyC) {
         debug_settings.show_collisions = !debug_settings.show_collisions;
-        info!("Debug collision display: {}", debug_settings.show_collisions);
+        info!(
+            "Debug collision display: {}",
+            debug_settings.show_collisions
+        );
     }
 }
 
-/// Render collision outlines for players and boids
-fn render_collision_outlines(
+/// Consolidated debug collision system that handles creation, updates, and cleanup
+fn debug_collision_system(
     mut commands: Commands,
     debug_settings: Res<DebugSettings>,
+    mut collision_outlines: Query<(Entity, &mut Sprite, &mut Transform, &CollisionOutline)>,
     players: Query<(Entity, &Position), With<Player>>,
     boids: Query<(Entity, &Position), With<Boid>>,
-    mut existing_outlines: Query<(&mut Transform, &CollisionOutline), With<CollisionOutline>>,
 ) {
     if !debug_settings.show_collisions {
+        // Remove all collision outlines when debug is disabled
+        for (outline_entity, _, _, _) in collision_outlines.iter() {
+            commands.entity(outline_entity).despawn();
+        }
         return;
     }
 
-    // Track which entities already have outlines
-    let mut outlined_entities: std::collections::HashSet<Entity> = existing_outlines
-        .iter()
-        .map(|(_, outline)| outline.entity)
-        .collect();
+    // Track which entities have outlines
+    let mut outlined_entities = std::collections::HashSet::new();
+    let mut outlines_to_remove = Vec::new();
 
-    // Update positions of existing outlines
-    for (mut transform, outline) in existing_outlines.iter_mut() {
-        // Update position based on the target entity
+    // Update existing outlines (position, size, color) and remove orphaned ones
+    for (outline_entity, mut sprite, mut transform, outline) in collision_outlines.iter_mut() {
+        // Try to find the target entity and update position
+        let mut found = false;
+
         if let Ok((_, position)) = players.get(outline.entity) {
             transform.translation.x = position.x;
             transform.translation.y = position.y;
+            found = true;
+            outlined_entities.insert(outline.entity);
         } else if let Ok((_, position)) = boids.get(outline.entity) {
             transform.translation.x = position.x;
             transform.translation.y = position.y;
+            found = true;
+            outlined_entities.insert(outline.entity);
         }
+
+        if !found {
+            outlines_to_remove.push(outline_entity);
+        } else {
+            // Update size based on scale settings
+            let size = if outline.is_player {
+                62.4 * debug_settings.player_scale
+            } else {
+                24.0 * debug_settings.boid_scale
+            };
+            sprite.custom_size = Some(Vec2::new(size, size));
+            sprite.color = debug_settings.collision_color;
+        }
+    }
+
+    // Remove orphaned outlines
+    for entity in outlines_to_remove {
+        commands.entity(entity).despawn();
     }
 
     // Create outlines for new players
@@ -980,9 +1024,11 @@ fn render_collision_outlines(
                     ..default()
                 },
                 Transform::from_translation(Vec3::new(position.x, position.y, 10.0)),
-                CollisionOutline { entity, is_player: true },
+                CollisionOutline {
+                    entity,
+                    is_player: true,
+                },
             ));
-            outlined_entities.insert(entity);
         }
     }
 
@@ -997,57 +1043,11 @@ fn render_collision_outlines(
                     ..default()
                 },
                 Transform::from_translation(Vec3::new(position.x, position.y, 10.0)),
-                CollisionOutline { entity, is_player: false },
+                CollisionOutline {
+                    entity,
+                    is_player: false,
+                },
             ));
-            outlined_entities.insert(entity);
         }
     }
 }
-
-/// Update collision outline sizes when scale changes
-fn update_collision_outline_sizes(
-    debug_settings: Res<DebugSettings>,
-    mut collision_outlines: Query<(&mut Sprite, &CollisionOutline)>,
-) {
-    if !debug_settings.show_collisions {
-        return;
-    }
-
-    for (mut sprite, outline) in collision_outlines.iter_mut() {
-        let size = if outline.is_player {
-            62.4 * debug_settings.player_scale // Player sprite size
-        } else {
-            24.0 * debug_settings.boid_scale   // Boid sprite size
-        };
-        sprite.custom_size = Some(Vec2::new(size, size));
-        sprite.color = debug_settings.collision_color; // Also update color if changed
-    }
-}
-
-/// Clean up collision outlines when debug is disabled or entities are removed
-fn cleanup_collision_outlines(
-    mut commands: Commands,
-    debug_settings: Res<DebugSettings>,
-    collision_outlines: Query<(Entity, &CollisionOutline)>,
-    players: Query<Entity, With<Player>>,
-    boids: Query<Entity, With<Boid>>,
-) {
-    if !debug_settings.show_collisions {
-        // Remove all collision outlines when debug is disabled
-        for (outline_entity, _) in collision_outlines.iter() {
-            commands.entity(outline_entity).despawn();
-        }
-        return;
-    }
-
-    // Remove outlines for entities that no longer exist
-    for (outline_entity, outline) in collision_outlines.iter() {
-        let target_exists = players.contains(outline.entity) || boids.contains(outline.entity);
-        if !target_exists {
-            commands.entity(outline_entity).despawn();
-        }
-    }
-}
-
-
-
