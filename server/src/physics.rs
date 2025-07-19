@@ -269,7 +269,18 @@ pub enum PhysicsSet {
 }
 
 /// Physics plugin that sets up Rapier2D and physics systems
-pub struct PhysicsPlugin;
+pub struct PhysicsPlugin {
+    /// Whether to enable debug rendering (requires full rendering setup)
+    pub enable_debug_render: bool,
+}
+
+impl Default for PhysicsPlugin {
+    fn default() -> Self {
+        Self {
+            enable_debug_render: true,
+        }
+    }
+}
 
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
@@ -282,9 +293,11 @@ impl Plugin for PhysicsPlugin {
             // Add Rapier2D physics plugin with no gravity for top-down space game
             .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0));
         
-        // Only add debug render plugin in debug builds
+        // Only add debug render plugin in debug builds and if enabled
         #[cfg(debug_assertions)]
-        app.add_plugins(RapierDebugRenderPlugin::default());
+        if self.enable_debug_render {
+            app.add_plugins(RapierDebugRenderPlugin::default());
+        }
         
         app
             // Add configuration resources

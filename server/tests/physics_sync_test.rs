@@ -1,9 +1,8 @@
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
-use boid_wars_server::physics::{
-    PhysicsPlugin, Player as PhysicsPlayer, PlayerInput as PhysicsInput,
-};
+use boid_wars_server::physics::{Player as PhysicsPlayer, PlayerInput as PhysicsInput};
 use boid_wars_server::position_sync::{PositionSyncPlugin, SyncPosition};
+use boid_wars_server::spatial_grid::SpatialGridPlugin;
 use boid_wars_shared::{Player, Position, Velocity};
 
 #[test]
@@ -103,6 +102,11 @@ fn test_player_movement_physics() {
             ExternalForce::default(),
             ExternalImpulse::default(),
             bevy_rapier2d::dynamics::GravityScale(0.0),
+            bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(1.0),
+            bevy_rapier2d::dynamics::Damping {
+                linear_damping: 0.0,
+                angular_damping: 0.0,
+            },
             SyncPosition,
         ))
         .id();
@@ -170,6 +174,7 @@ fn test_projectile_lifecycle() {
             },
             PhysicsPlayer {
                 player_id: 1,
+                weapon_cooldown: Timer::from_seconds(0.0, TimerMode::Once), // Ready to shoot
                 ..Default::default()
             },
             PhysicsInput {
@@ -227,10 +232,11 @@ fn test_collision_detection() {
             Collider::ball(10.0),
             bevy_rapier2d::dynamics::Velocity::linear(Vec2::new(100.0, 0.0)),
             ActiveEvents::COLLISION_EVENTS,
+            Restitution::coefficient(0.5), // Add some bounce
         ))
         .id();
 
-    let entity2 = app
+    let _entity2 = app
         .world_mut()
         .spawn((
             Transform::from_xyz(150.0, 100.0, 0.0),
@@ -252,9 +258,12 @@ fn test_collision_detection() {
         .unwrap();
 
     // After collision with fixed body, the dynamic body should have changed velocity
+    // Check that velocity has changed from the initial (100, 0)
+    let initial_velocity = Vec2::new(100.0, 0.0);
     assert!(
-        velocity.linvel.x < 100.0 || velocity.linvel.length() < 0.1,
-        "Velocity should change after collision: {:?}",
+        (velocity.linvel - initial_velocity).length() > 5.0, // Velocity should have changed noticeably
+        "Velocity should change after collision. Initial: {:?}, Final: {:?}",
+        initial_velocity,
         velocity.linvel
     );
 }
@@ -292,7 +301,12 @@ fn create_test_app() -> App {
     // Add minimal plugins needed for testing
     app.add_plugins(MinimalPlugins);
     app.add_plugins(TransformPlugin);
-    app.add_plugins(PhysicsPlugin);
+    
+    // Add our plugins in the correct order
+    app.add_plugins(SpatialGridPlugin); // Must be before PhysicsPlugin
+    app.add_plugins(boid_wars_server::physics::PhysicsPlugin {
+        enable_debug_render: false, // Disable debug rendering for tests
+    });
     app.add_plugins(PositionSyncPlugin);
 
     // Initialize time resource

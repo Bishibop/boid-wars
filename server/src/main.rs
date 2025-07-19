@@ -87,7 +87,7 @@ fn main() {
         .add_plugins(ServerPlugins::new(lightyear_config))
         .add_plugins(ProtocolPlugin)
         .add_plugins(SpatialGridPlugin) // Must be before systems that use it
-        .add_plugins(PhysicsPlugin)
+        .add_plugins(PhysicsPlugin::default())
         .add_plugins(PositionSyncPlugin)
         .add_plugins(groups::BoidGroupPlugin)
         .add_plugins(BoidWarsServerPlugin);
