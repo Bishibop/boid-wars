@@ -1,7 +1,7 @@
-use bevy::prelude::*;
-use boid_wars_shared::*;
 use crate::groups::BoidGroupConfig;
 use crate::physics::BoidAggression;
+use bevy::prelude::*;
+use boid_wars_shared::*;
 
 /// Plugin for group combat coordination
 pub struct GroupCombatPlugin;
@@ -16,9 +16,12 @@ impl Plugin for GroupCombatPlugin {
                 rotate_active_shooters,
             ),
         );
-        
+
         // Timer for shooter rotation
-        app.insert_resource(ShooterRotationTimer(Timer::from_seconds(3.0, TimerMode::Repeating)));
+        app.insert_resource(ShooterRotationTimer(Timer::from_seconds(
+            3.0,
+            TimerMode::Repeating,
+        )));
     }
 }
 
@@ -39,27 +42,29 @@ fn group_target_selection(
             GroupBehavior::Patrolling { .. } => {
                 // Check for nearby threats
                 let detection_range = match group.archetype {
-                    GroupArchetype::Recon { detection_range, .. } => detection_range,
+                    GroupArchetype::Recon {
+                        detection_range, ..
+                    } => detection_range,
                     _ => config.group_aggression_range,
                 };
-                
+
                 // Find nearest player
-                if let Some((player_entity, player_pos, player)) = players.iter()
+                if let Some(player) = players
+                    .iter()
                     .map(|(e, p, pl)| (e, p.0.distance(group_pos.0), pl))
                     .filter(|(_, dist, _)| *dist < detection_range)
                     .min_by(|a, b| a.1.total_cmp(&b.1))
-                    .and_then(|(e, _, pl)| players.get(e).ok().map(|p| (e, p.1, pl))) {
-                    
+                    .map(|(_, _, pl)| pl)
+                {
                     // Check if any boid in the group has been attacked by this player
-                    let group_under_attack = aggression.boid_aggression.values()
-                        .any(|data| {
-                            if let Ok((_, _, p)) = players.get(data.attacker) {
-                                p.id == player.id
-                            } else {
-                                false
-                            }
-                        });
-                    
+                    let group_under_attack = aggression.boid_aggression.values().any(|data| {
+                        if let Ok((_, _, p)) = players.get(data.attacker) {
+                            p.id == player.id
+                        } else {
+                            false
+                        }
+                    });
+
                     if group_under_attack {
                         // Switch to engaging
                         group.behavior_state = GroupBehavior::Engaging {
@@ -68,11 +73,13 @@ fn group_target_selection(
                         };
                     }
                 }
-            },
+            }
             GroupBehavior::Engaging { primary_target, .. } => {
                 // Check if target still exists and is in range
-                let target_exists = players.iter().any(|(_, _, p)| p.id as u32 == *primary_target);
-                
+                let target_exists = players
+                    .iter()
+                    .any(|(_, _, p)| p.id as u32 == *primary_target);
+
                 if !target_exists {
                     // Return to patrolling
                     group.behavior_state = GroupBehavior::Patrolling {
@@ -83,11 +90,15 @@ fn group_target_selection(
                     // Check if should retreat
                     let member_count = count_group_members(&group.id, &boids);
                     let retreat_threshold = match group.archetype {
-                        GroupArchetype::Defensive { retreat_threshold, .. } => retreat_threshold,
+                        GroupArchetype::Defensive {
+                            retreat_threshold, ..
+                        } => retreat_threshold,
                         _ => 0.3, // Default 30% losses
                     };
-                    
-                    if member_count < (group.initial_size as f32 * (1.0 - retreat_threshold)) as usize {
+
+                    if member_count
+                        < (group.initial_size as f32 * (1.0 - retreat_threshold)) as usize
+                    {
                         // Retreat to home territory
                         group.behavior_state = GroupBehavior::Retreating {
                             rally_point: group.home_territory.center,
@@ -95,7 +106,7 @@ fn group_target_selection(
                         };
                     }
                 }
-            },
+            }
             GroupBehavior::Retreating { rally_point, .. } => {
                 // Check if reached rally point
                 if group_pos.0.distance(*rally_point) < 100.0 {
@@ -105,8 +116,8 @@ fn group_target_selection(
                         radius: 200.0,
                     };
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 }
@@ -117,27 +128,27 @@ fn group_combat_coordinator(
     mut boids: Query<(Entity, &BoidGroupMember, &mut BoidCombat, &Position), With<Boid>>,
     players: Query<(&Position, &Player), Without<Boid>>,
 ) {
-    for (mut group, group_pos) in groups.iter_mut() {
+    for (mut group, _) in groups.iter_mut() {
         if let GroupBehavior::Engaging { primary_target, .. } = &group.behavior_state {
             // Find target player position
-            if let Some((target_pos, _)) = players.iter()
-                .find(|(_, p)| p.id as u32 == *primary_target) {
-                
+            if let Some((target_pos, _)) =
+                players.iter().find(|(_, p)| p.id as u32 == *primary_target)
+            {
                 // Update active shooters set
                 update_active_shooters(&mut group, &boids, target_pos.0);
-                
+
                 // Update combat state for all group members
-                for (entity, member, mut combat, pos) in boids.iter_mut() {
+                for (entity, member, mut combat, _) in boids.iter_mut() {
                     if member.group_id == group.id {
                         if group.active_shooters.contains(&entity) {
                             // Active shooter - enable combat with very slow fire rate
                             // Don't reset last_shot_time - let natural cooldown happen
-                            
+
                             // Adjust fire rate based on role (much slower rates)
                             combat.fire_rate = match member.role_in_group {
-                                BoidRole::Leader => 0.15,    // 1 shot every ~6.7 seconds
-                                BoidRole::Flanker => 0.12,   // 1 shot every ~8.3 seconds
-                                _ => 0.1,                    // 1 shot every 10 seconds
+                                BoidRole::Leader => 0.15,  // 1 shot every ~6.7 seconds
+                                BoidRole::Flanker => 0.12, // 1 shot every ~8.3 seconds
+                                _ => 0.1,                  // 1 shot every 10 seconds
                             };
                         } else {
                             // Non-shooter - disable combat by setting very low fire rate
@@ -160,14 +171,15 @@ fn update_active_shooters(
     target_pos: Vec2,
 ) {
     // Get all eligible shooters
-    let mut eligible_shooters: Vec<(Entity, f32, BoidRole)> = boids.iter()
+    let mut eligible_shooters: Vec<(Entity, f32, BoidRole)> = boids
+        .iter()
         .filter(|(_, member, _, _)| member.group_id == group.id)
         .map(|(entity, member, _, pos)| {
             let distance = pos.0.distance(target_pos);
             (entity, distance, member.role_in_group)
         })
         .collect();
-    
+
     // Sort by priority (role and distance)
     eligible_shooters.sort_by(|a, b| {
         // Prioritize by role first
@@ -183,7 +195,7 @@ fn update_active_shooters(
             BoidRole::Support => 2,
             BoidRole::Scout => 3,
         };
-        
+
         if role_priority_a != role_priority_b {
             role_priority_a.cmp(&role_priority_b)
         } else {
@@ -191,18 +203,18 @@ fn update_active_shooters(
             a.1.total_cmp(&b.1)
         }
     });
-    
+
     // Keep existing shooters if still eligible
     let mut new_shooters = std::collections::HashSet::new();
     let desired_count = group.max_shooters as usize;
-    
+
     // First, retain existing shooters that are still eligible
     for (entity, _, _) in &eligible_shooters {
         if group.active_shooters.contains(entity) && new_shooters.len() < desired_count {
             new_shooters.insert(*entity);
         }
     }
-    
+
     // Then add new shooters if needed
     for (entity, _, _) in &eligible_shooters {
         if new_shooters.len() >= desired_count {
@@ -210,7 +222,7 @@ fn update_active_shooters(
         }
         new_shooters.insert(*entity);
     }
-    
+
     group.active_shooters = new_shooters;
 }
 
@@ -221,7 +233,7 @@ fn rotate_active_shooters(
     time: Res<Time>,
 ) {
     timer.0.tick(time.delta());
-    
+
     if timer.0.just_finished() {
         for mut group in groups.iter_mut() {
             if matches!(group.behavior_state, GroupBehavior::Engaging { .. }) {
@@ -239,7 +251,8 @@ fn rotate_active_shooters(
 
 /// Count members of a group
 fn count_group_members(group_id: &u32, boids: &Query<&BoidGroupMember, With<Boid>>) -> usize {
-    boids.iter()
+    boids
+        .iter()
         .filter(|member| member.group_id == *group_id)
         .count()
 }

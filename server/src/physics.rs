@@ -81,11 +81,14 @@ impl PlayerAggression {
     pub fn mark_aggressive(&mut self, player: Entity) {
         // Enforce maximum size to prevent unbounded growth
         const MAX_TRACKED_PLAYERS: usize = 100;
-        
+
         // If we're at capacity and this is a new player, remove the oldest entry
-        if self.aggressive_players.len() >= MAX_TRACKED_PLAYERS && !self.aggressive_players.contains_key(&player) {
+        if self.aggressive_players.len() >= MAX_TRACKED_PLAYERS
+            && !self.aggressive_players.contains_key(&player)
+        {
             // Find and remove the oldest entry
-            if let Some(&oldest_player) = self.aggressive_players
+            if let Some(&oldest_player) = self
+                .aggressive_players
                 .iter()
                 .min_by_key(|(_, &time)| time)
                 .map(|(entity, _)| entity)
@@ -93,7 +96,7 @@ impl PlayerAggression {
                 self.aggressive_players.remove(&oldest_player);
             }
         }
-        
+
         self.aggressive_players.insert(player, Instant::now());
     }
 
@@ -109,12 +112,12 @@ impl PlayerAggression {
     /// Clean up expired aggression entries (only runs periodically)
     pub fn cleanup_expired(&mut self) {
         let now = Instant::now();
-        
+
         // Only cleanup if enough time has passed
         if now.duration_since(self.last_cleanup).as_secs_f32() < self.cleanup_interval {
             return;
         }
-        
+
         self.last_cleanup = now;
         self.aggressive_players.retain(|_, &mut last_attack| {
             now.duration_since(last_attack) < self.aggression_duration
@@ -166,11 +169,14 @@ impl BoidAggression {
     pub fn record_attack(&mut self, boid: Entity, attacker: Entity) {
         // Enforce maximum size to prevent unbounded growth
         const MAX_TRACKED_BOIDS: usize = 1000;
-        
+
         // If we're at capacity and this is a new boid, remove the oldest entry
-        if self.boid_aggression.len() >= MAX_TRACKED_BOIDS && !self.boid_aggression.contains_key(&boid) {
+        if self.boid_aggression.len() >= MAX_TRACKED_BOIDS
+            && !self.boid_aggression.contains_key(&boid)
+        {
             // Find and remove the oldest entry
-            if let Some(&oldest_boid) = self.boid_aggression
+            if let Some(&oldest_boid) = self
+                .boid_aggression
                 .iter()
                 .min_by_key(|(_, data)| data.attack_time)
                 .map(|(entity, _)| entity)
@@ -178,7 +184,7 @@ impl BoidAggression {
                 self.boid_aggression.remove(&oldest_boid);
             }
         }
-        
+
         self.boid_aggression.insert(
             boid,
             BoidAggressionData {
@@ -222,12 +228,12 @@ impl BoidAggression {
     /// Clean up expired aggression entries (only runs periodically)
     pub fn cleanup_expired(&mut self) {
         let now = Instant::now();
-        
+
         // Only cleanup if enough time has passed
         if now.duration_since(self.last_cleanup).as_secs_f32() < self.cleanup_interval {
             return;
         }
-        
+
         self.last_cleanup = now;
         self.boid_aggression
             .retain(|_, data| now.duration_since(data.attack_time) < self.aggression_duration);
@@ -302,7 +308,9 @@ impl Plugin for PhysicsPlugin {
                 FixedUpdate,
                 (
                     PhysicsSet::Input,
-                    PhysicsSet::AI.after(PhysicsSet::Input).after(SpatialGridSet::Update),
+                    PhysicsSet::AI
+                        .after(PhysicsSet::Input)
+                        .after(SpatialGridSet::Update),
                     PhysicsSet::Movement.after(PhysicsSet::AI),
                     PhysicsSet::Combat.after(PhysicsSet::Movement),
                     PhysicsSet::Collision.after(PhysicsSet::Combat),
@@ -366,7 +374,7 @@ impl FromWorld for ArenaConfig {
 }
 
 /// Collision groups for different entity types
-/// 
+///
 /// ## Group Allocation:
 /// - `GROUP_1`: Players - can be hit by all projectiles, collide with walls and other players
 /// - `GROUP_2`: Player projectiles - hit players, boids, and walls

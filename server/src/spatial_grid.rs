@@ -29,13 +29,13 @@ impl SpatialGrid {
         let cells_per_row = (width / cell_size).ceil() as usize;
         let cells_per_col = (height / cell_size).ceil() as usize;
         let total_cells = cells_per_row * cells_per_col;
-        
+
         // Pre-allocate all cells with reasonable capacity
         let mut cells = Vec::with_capacity(total_cells);
         for _ in 0..total_cells {
             cells.push(Vec::with_capacity(32)); // Support higher entity density with 10k+ entities
         }
-        
+
         Self {
             cell_size,
             cells,
@@ -72,38 +72,38 @@ impl SpatialGrid {
     ) -> Vec<Entity> {
         // Use thread-local storage for the result to avoid allocations
         thread_local! {
-            static RESULT_BUFFER: std::cell::RefCell<Vec<Entity>> = 
+            static RESULT_BUFFER: std::cell::RefCell<Vec<Entity>> =
                 std::cell::RefCell::new(Vec::with_capacity(1024)); // Larger buffer for 10k+ entities
         }
-        
+
         RESULT_BUFFER.with(|buffer| {
             let mut result = buffer.borrow_mut();
             result.clear();
-            
+
             let _radius_squared = radius * radius;
             let cell_radius = (radius / self.cell_size).ceil() as i32;
             let center_cell = self.get_cell(position);
-            
+
             // Early bounds checking to avoid unnecessary iterations
             let min_x = (center_cell.0 - cell_radius).max(0);
             let max_x = (center_cell.0 + cell_radius).min(self.cells_per_row as i32 - 1);
             let min_y = (center_cell.1 - cell_radius).max(0);
             let max_y = (center_cell.1 + cell_radius).min(self.cells_per_col as i32 - 1);
-            
+
             // Check all cells within radius
             for x in min_x..=max_x {
                 for y in min_y..=max_y {
                     // Skip cells that are definitely outside the circle
                     let cell_center_x = (x as f32 + 0.5) * self.cell_size;
                     let cell_center_y = (y as f32 + 0.5) * self.cell_size;
-                    let cell_dist_sq = (cell_center_x - position.x).powi(2) + 
-                                       (cell_center_y - position.y).powi(2);
-                    
+                    let cell_dist_sq =
+                        (cell_center_x - position.x).powi(2) + (cell_center_y - position.y).powi(2);
+
                     // Conservative check - if cell center is too far, skip
                     if cell_dist_sq > (radius + self.cell_size * 0.7071).powi(2) {
                         continue;
                     }
-                    
+
                     // Use flat array index for better cache locality
                     if let Some(idx) = self.get_cell_index_from_coords(x, y) {
                         for &entity in &self.cells[idx] {
@@ -117,7 +117,7 @@ impl SpatialGrid {
                     }
                 }
             }
-            
+
             // Return a clone to avoid holding the RefCell borrow
             result.clone()
         })
@@ -132,10 +132,10 @@ impl SpatialGrid {
     ) -> Vec<Entity> {
         let mut result = Vec::with_capacity(128); // Larger buffer for higher entity density
         let radius_squared = radius * radius;
-        
+
         // Get candidates from cells
         let candidates = self.get_nearby_entities(position, radius);
-        
+
         // Filter by actual distance
         for entity in candidates {
             if let Ok(entity_pos) = positions.get(entity) {
@@ -145,7 +145,7 @@ impl SpatialGrid {
                 }
             }
         }
-        
+
         result
     }
 
@@ -154,7 +154,7 @@ impl SpatialGrid {
         let y = (position.y / self.cell_size).floor() as i32;
         (x, y)
     }
-    
+
     /// Get flat array index from position, returns None if out of bounds
     fn get_cell_index(&self, position: Vec2) -> Option<usize> {
         let (x, y) = self.get_cell(position);
@@ -164,7 +164,7 @@ impl SpatialGrid {
             None
         }
     }
-    
+
     /// Get flat array index from cell coordinates, returns None if out of bounds
     fn get_cell_index_from_coords(&self, x: i32, y: i32) -> Option<usize> {
         if x >= 0 && y >= 0 && x < self.cells_per_row as i32 && y < self.cells_per_col as i32 {
@@ -173,22 +173,15 @@ impl SpatialGrid {
             None
         }
     }
-    
+
     /// Get statistics about grid usage (useful for debugging)
     #[allow(dead_code)]
     pub fn get_stats(&self) -> SpatialGridStats {
         let total_cells = self.cells.len();
-        let occupied_cells = self.cells.iter()
-            .filter(|cell| !cell.is_empty())
-            .count();
-        let total_entities = self.cells.iter()
-            .map(|cell| cell.len())
-            .sum();
-        let max_entities_per_cell = self.cells.iter()
-            .map(|cell| cell.len())
-            .max()
-            .unwrap_or(0);
-            
+        let occupied_cells = self.cells.iter().filter(|cell| !cell.is_empty()).count();
+        let total_entities = self.cells.iter().map(|cell| cell.len()).sum();
+        let max_entities_per_cell = self.cells.iter().map(|cell| cell.len()).max().unwrap_or(0);
+
         SpatialGridStats {
             total_cells,
             occupied_cells,
@@ -255,7 +248,7 @@ impl Plugin for SpatialGridPlugin {
                 FixedUpdate,
                 update_spatial_grid.in_set(SpatialGridSet::Update),
             );
-        
+
         info!("Spatial grid plugin initialized");
     }
 }

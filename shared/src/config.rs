@@ -3,7 +3,7 @@ use std::env;
 /// Network configuration shared between client and server
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
-    pub server_bind_addr: String,  // Server binds to this address
+    pub server_bind_addr: String,    // Server binds to this address
     pub client_connect_addr: String, // Client connects to this address
     pub protocol_id: u64,
     pub dev_key: [u8; 32],

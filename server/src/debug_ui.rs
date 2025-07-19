@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 
 #[cfg(debug_assertions)]
-use crate::flocking::FlockingConfig;
-#[cfg(debug_assertions)]
 use crate::config::PhysicsConfig;
+#[cfg(debug_assertions)]
+use crate::flocking::FlockingConfig;
 #[cfg(debug_assertions)]
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 
@@ -63,7 +63,7 @@ fn debug_ui_system(
         .as_ref()
         .map(|time| time.elapsed().as_secs_f32() < 1.0)
         .unwrap_or(false);
-    
+
     if show_clipboard_feedback {
         egui::Area::new(egui::Id::from("clipboard_feedback"))
             .fixed_pos(egui::pos2(ctx.screen_rect().center().x - 50.0, 20.0))
@@ -81,7 +81,6 @@ fn debug_ui_system(
             egui::ScrollArea::vertical().show(ui, |ui| {
                 // Flocking Configuration Section
                 ui.heading("🐦 Flocking Configuration");
-                
                 // Detection Radii
                 ui.separator();
                 render_config_section(

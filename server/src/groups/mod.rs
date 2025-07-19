@@ -1,17 +1,17 @@
-use bevy::prelude::*;
-use boid_wars_shared::*;
-use bevy_rapier2d::prelude::*;
-use lightyear::prelude::server::*;
 use crate::physics::{GameCollisionGroups, BOID_RADIUS};
 use crate::position_sync::SyncPosition;
+use bevy::prelude::*;
+use bevy_rapier2d::prelude::*;
+use boid_wars_shared::*;
+use lightyear::prelude::server::*;
 
-pub mod territory;
+pub mod combat;
 pub mod formation;
 pub mod movement;
-pub mod combat;
+pub mod territory;
 
-use territory::*;
 use formation::*;
+use territory::*;
 
 /// Configuration for the boid group system
 #[derive(Resource, Debug, Clone)]
@@ -21,27 +21,27 @@ pub struct BoidGroupConfig {
     pub max_group_size: u32,
     pub default_group_size: u32,
     pub groups_per_zone: u32,
-    
+
     // Formation parameters
     pub formation_strength: f32,
     pub formation_transition_speed: f32,
     pub formation_position_tolerance: f32,
-    
+
     // Combat parameters
     pub max_shooters_percentage: f32,
     pub shooter_rotation_interval: f32,
     pub group_aggression_range: f32,
-    
+
     // Territory parameters
     pub territory_radius: f32,
     pub patrol_speed: f32,
     pub territory_defense_bonus: f32,
-    
+
     // LOD parameters
     pub lod_near_distance: f32,
     pub lod_medium_distance: f32,
     pub lod_far_distance: f32,
-    
+
     // Performance limits
     pub max_groups: u32,
     pub max_total_boids: u32,
@@ -55,29 +55,29 @@ impl Default for BoidGroupConfig {
             max_group_size: 200,
             default_group_size: 100,
             groups_per_zone: 5, // More groups for larger scale
-            
+
             // Formation parameters
             formation_strength: 0.7,
             formation_transition_speed: 2.0,
             formation_position_tolerance: 8.0, // Slightly more than original
-            
+
             // Combat parameters
             max_shooters_percentage: 0.1, // Only 10% of group can shoot
             shooter_rotation_interval: 5.0, // Rotate every 5 seconds
             group_aggression_range: 300.0, // Scaled for smaller arena
-            
+
             // Territory parameters
             territory_radius: 200.0, // Scaled for smaller arena
-            patrol_speed: 0.6, // Reasonable speed
+            patrol_speed: 0.6,       // Reasonable speed
             territory_defense_bonus: 1.5,
-            
+
             // LOD parameters
-            lod_near_distance: 500.0, // Full detail for close groups
+            lod_near_distance: 500.0,    // Full detail for close groups
             lod_medium_distance: 1000.0, // Reduced update rate
-            lod_far_distance: 1500.0, // Minimal updates for distant groups
-            
+            lod_far_distance: 1500.0,    // Minimal updates for distant groups
+
             // Performance limits
-            max_groups: 50, // Support large-scale battles
+            max_groups: 50,         // Support large-scale battles
             max_total_boids: 10000, // Target 10k+ entities
         }
     }
@@ -108,7 +108,7 @@ pub struct GroupLOD {
 pub enum LODLevel {
     Near,    // Full individual AI, every frame
     Medium,  // Simplified flocking, 10Hz update
-    Far,     // Group-only movement, 5Hz update  
+    Far,     // Group-only movement, 5Hz update
     Distant, // Static until player approaches
 }
 
@@ -124,43 +124,45 @@ pub fn spawn_boid_group(
     // Generate unique group ID
     let group_id = group_id_counter.0;
     group_id_counter.0 += 1;
-    
+
     // Calculate max shooters based on group size (much more conservative)
     let max_shooters = (size as f32 * 0.1).ceil().max(1.0).min(3.0) as u8; // 10% of group, max 3 shooters
-    
+
     // Spawn group entity
-    let group = commands.spawn((
-        BoidGroup {
-            id: group_id,
-            archetype,
-            home_territory: territory.clone(),
-            current_formation: Formation::default_for_archetype(&archetype),
-            behavior_state: GroupBehavior::Patrolling {
-                route: territory.patrol_points.clone(),
-                current_waypoint: 0,
+    let group = commands
+        .spawn((
+            BoidGroup {
+                id: group_id,
+                archetype,
+                home_territory: territory.clone(),
+                current_formation: Formation::default_for_archetype(&archetype),
+                behavior_state: GroupBehavior::Patrolling {
+                    route: territory.patrol_points.clone(),
+                    current_waypoint: 0,
+                },
+                active_shooters: std::collections::HashSet::new(),
+                max_shooters,
+                initial_size: size,
             },
-            active_shooters: std::collections::HashSet::new(),
-            max_shooters,
-            initial_size: size,
-        },
-        Position(territory.center),
-        GroupVelocity(Vec2::ZERO),
-        GroupLOD {
-            level: LODLevel::Near,
-            last_update: 0.0,
-        },
-        Replicate::default(),
-    )).id();
-    
+            Position(territory.center),
+            GroupVelocity(Vec2::ZERO),
+            GroupLOD {
+                level: LODLevel::Near,
+                last_update: 0.0,
+            },
+            Replicate::default(),
+        ))
+        .id();
+
     // Calculate formation positions
     let formation = Formation::default_for_archetype(&archetype);
     let formation_positions = calculate_formation_positions(&formation, size as usize);
-    
+
     // Spawn member boids
     for (i, offset) in formation_positions.iter().enumerate() {
         let boid_id = boid_id_counter.0;
         boid_id_counter.0 += 1;
-        
+
         // Determine role based on position in formation
         let role = match i {
             0 => BoidRole::Leader,
@@ -168,36 +170,39 @@ pub fn spawn_boid_group(
             n if n < size as usize / 2 => BoidRole::Support,
             _ => BoidRole::Scout,
         };
-        
+
         // Create boid position
         let x = territory.center.x + offset.x;
         let y = territory.center.y + offset.y;
-        
+
         // Create boid bundle with enhanced stats based on archetype
         let mut bundle = BoidBundle::new(boid_id, x, y);
-        
+
         // Adjust combat stats based on archetype
         match archetype {
-            GroupArchetype::Assault { aggression_multiplier, .. } => {
+            GroupArchetype::Assault {
+                aggression_multiplier,
+                ..
+            } => {
                 bundle.combat.damage *= aggression_multiplier;
                 bundle.combat.fire_rate *= 1.1; // Only slightly faster
-            },
+            }
             GroupArchetype::Defensive { .. } => {
                 bundle.health.max *= 1.5;
                 bundle.health.current = bundle.health.max;
                 bundle.combat.fire_rate *= 0.9; // Only slightly slower
-            },
+            }
             GroupArchetype::Recon { .. } => {
                 bundle.combat.aggression_range *= 1.5;
                 bundle.combat.fire_rate *= 0.8; // Recon shoots less often
-            },
+            }
         }
-        
+
         // Random initial velocity
         let angle = rand::random::<f32>() * std::f32::consts::TAU;
         let speed = 50.0;
         bundle.velocity = boid_wars_shared::Velocity::new(angle.cos() * speed, angle.sin() * speed);
-        
+
         commands.spawn((
             bundle,
             BoidGroupMember {
@@ -227,7 +232,7 @@ pub fn spawn_boid_group(
             SyncPosition,
         ));
     }
-    
+
     group
 }
 
@@ -240,7 +245,7 @@ impl Plugin for BoidGroupPlugin {
         app.init_resource::<GroupIdCounter>();
         app.init_resource::<BoidIdCounter>();
         app.init_resource::<crate::flocking::FlockingConfig>(); // Add missing resource for debug UI
-        
+
         // Add sub-plugins
         app.add_plugins((
             TerritoryPlugin,
@@ -248,16 +253,10 @@ impl Plugin for BoidGroupPlugin {
             movement::GroupMovementPlugin,
             combat::GroupCombatPlugin,
         ));
-        
+
         // Add systems
-        app.add_systems(
-            Update,
-            (
-                update_group_lod,
-                cleanup_empty_groups,
-            ),
-        );
-        
+        app.add_systems(Update, (update_group_lod, cleanup_empty_groups));
+
         info!("Boid group system initialized");
     }
 }
@@ -269,11 +268,12 @@ fn update_group_lod(
     config: Res<BoidGroupConfig>,
 ) {
     for (group_pos, mut lod) in groups.iter_mut() {
-        let nearest_player_dist = players.iter()
+        let nearest_player_dist = players
+            .iter()
             .map(|p| p.0.distance(group_pos.0))
             .min_by(|a, b| a.total_cmp(b))
             .unwrap_or(f32::MAX);
-            
+
         lod.level = match nearest_player_dist {
             d if d < config.lod_near_distance => LODLevel::Near,
             d if d < config.lod_medium_distance => LODLevel::Medium,
@@ -290,9 +290,8 @@ fn cleanup_empty_groups(
     members: Query<&BoidGroupMember>,
 ) {
     for group_entity in groups.iter() {
-        let has_members = members.iter()
-            .any(|m| m.group_entity == group_entity);
-            
+        let has_members = members.iter().any(|m| m.group_entity == group_entity);
+
         if !has_members {
             commands.entity(group_entity).despawn();
         }

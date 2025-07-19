@@ -107,9 +107,10 @@ pub fn update_flocking(
         .iter()
         .map(|(entity, pos, vel)| (entity, pos.0, vel.0))
         .collect();
-    
+
     // Create a HashSet for O(1) boid lookups
-    let boid_entities: std::collections::HashSet<Entity> = boid_data.iter().map(|(e, _, _)| *e).collect();
+    let boid_entities: std::collections::HashSet<Entity> =
+        boid_data.iter().map(|(e, _, _)| *e).collect();
 
     // Update each boid
     for (entity, pos, mut vel) in boids.iter_mut() {
@@ -190,12 +191,12 @@ pub fn update_flocking(
                 break; // Found at least one non-boid, proceed with avoidance
             }
         }
-        
+
         let mut obstacle_force = Vec2::ZERO;
         let mut player_force = Vec2::ZERO;
         let mut obstacle_count = 0;
         let mut player_count = 0;
-        
+
         // Only calculate avoidance if there are non-boid entities nearby
         if non_boid_count > 0 {
             for &other_entity in &nearby {
@@ -203,46 +204,51 @@ pub fn update_flocking(
                 if other_entity == entity || boid_entities.contains(&other_entity) {
                     continue;
                 }
-            
-            // Check for obstacles
-            if let Ok((obs_pos, obs)) = obstacle_query.get(other_entity) {
-                let force = calculate_obstacle_avoidance(
-                    pos.0, vel.0, obs_pos.0, 
-                    Vec2::new(obs.width / 2.0, obs.height / 2.0),
-                    config.obstacle_prediction_time,
-                    config.obstacle_danger_zone
-                );
-                obstacle_force += force;
-                obstacle_count += 1;
-            }
-            
-            // Check for players
-            if let Ok((player_pos, player_vel)) = player_query.get(other_entity) {
-                let distance = pos.0.distance(player_pos.0);
-                if distance < config.player_avoidance_radius {
-                    let force = calculate_dynamic_avoidance(
-                        pos.0, vel.0, player_pos.0, player_vel.0,
-                        config.player_avoidance_radius,
-                        config.collision_threshold
+
+                // Check for obstacles
+                if let Ok((obs_pos, obs)) = obstacle_query.get(other_entity) {
+                    let force = calculate_obstacle_avoidance(
+                        pos.0,
+                        vel.0,
+                        obs_pos.0,
+                        Vec2::new(obs.width / 2.0, obs.height / 2.0),
+                        config.obstacle_prediction_time,
+                        config.obstacle_danger_zone,
                     );
-                    player_force += force;
-                    player_count += 1;
+                    obstacle_force += force;
+                    obstacle_count += 1;
+                }
+
+                // Check for players
+                if let Ok((player_pos, player_vel)) = player_query.get(other_entity) {
+                    let distance = pos.0.distance(player_pos.0);
+                    if distance < config.player_avoidance_radius {
+                        let force = calculate_dynamic_avoidance(
+                            pos.0,
+                            vel.0,
+                            player_pos.0,
+                            player_vel.0,
+                            config.player_avoidance_radius,
+                            config.collision_threshold,
+                        );
+                        player_force += force;
+                        player_count += 1;
+                    }
                 }
             }
-            }
         }
-        
+
         // Apply averaged avoidance forces
         if obstacle_count > 0 {
-            let avg_force = (obstacle_force / obstacle_count as f32)
-                .normalize_or_zero() * config.max_speed;
+            let avg_force =
+                (obstacle_force / obstacle_count as f32).normalize_or_zero() * config.max_speed;
             let steering = (avg_force - vel.0).clamp_length_max(config.max_force);
             acceleration += steering * config.obstacle_avoidance_weight;
         }
-        
+
         if player_count > 0 {
-            let avg_force = (player_force / player_count as f32)
-                .normalize_or_zero() * config.max_speed;
+            let avg_force =
+                (player_force / player_count as f32).normalize_or_zero() * config.max_speed;
             let steering = (avg_force - vel.0).clamp_length_max(config.max_force);
             acceleration += steering * config.player_avoidance_weight;
         }
@@ -324,23 +330,23 @@ fn calculate_obstacle_avoidance(
 ) -> Vec2 {
     // Predict where boid will be
     let future_pos = boid_pos + boid_vel * prediction_time;
-    
+
     // Find closest point on obstacle AABB
     let closest = Vec2::new(
         future_pos.x.clamp(
             obstacle_pos.x - obstacle_half_size.x,
-            obstacle_pos.x + obstacle_half_size.x
+            obstacle_pos.x + obstacle_half_size.x,
         ),
         future_pos.y.clamp(
             obstacle_pos.y - obstacle_half_size.y,
-            obstacle_pos.y + obstacle_half_size.y
-        )
+            obstacle_pos.y + obstacle_half_size.y,
+        ),
     );
-    
+
     // Calculate avoidance force
     let diff = future_pos - closest;
     let distance = diff.length();
-    
+
     if distance < 0.001 {
         // Inside obstacle, push out
         Vec2::new(1.0, 0.0) // Default push direction
@@ -363,31 +369,30 @@ fn calculate_dynamic_avoidance(
 ) -> Vec2 {
     let relative_pos = target_pos - boid_pos;
     let distance = relative_pos.length();
-    
+
     if distance > avoidance_radius || distance < 0.001 {
         return Vec2::ZERO;
     }
-    
+
     // Calculate relative velocity
     let relative_vel = target_vel - boid_vel;
-    
+
     // Time to closest approach
     let time_to_closest = if relative_vel.length_squared() > 0.01 {
         -(relative_pos.dot(relative_vel)) / relative_vel.length_squared()
     } else {
         0.0
     };
-    
+
     // Only avoid if approaching
     if time_to_closest < 0.0 || time_to_closest > 2.0 {
         // Not approaching or too far in future - simple repulsion
-        return -relative_pos.normalize_or_zero() * 
-            (1.0 - distance / avoidance_radius).powi(2);
+        return -relative_pos.normalize_or_zero() * (1.0 - distance / avoidance_radius).powi(2);
     }
-    
+
     // Predict closest approach distance
     let future_distance = (relative_pos + relative_vel * time_to_closest).length();
-    
+
     if future_distance < collision_threshold {
         // Calculate perpendicular avoidance
         let avoidance_direction = if relative_pos.perp_dot(relative_vel) > 0.0 {
@@ -395,7 +400,7 @@ fn calculate_dynamic_avoidance(
         } else {
             Vec2::new(relative_pos.y, -relative_pos.x).normalize()
         };
-        
+
         avoidance_direction * (1.0 - future_distance / collision_threshold).powi(2)
     } else {
         Vec2::ZERO
@@ -415,14 +420,14 @@ fn calculate_wall_avoidance(
 ) -> Vec2 {
     let mut force = Vec2::ZERO;
     let speed = vel.length();
-    
+
     // Edge case: very low velocity, use position-based repulsion only
     if speed < min_velocity {
         return calculate_static_wall_repulsion(pos, width, height, margin);
     }
-    
+
     let future_pos = pos + vel.normalize_or_zero() * speed.min(margin) * prediction_time;
-    
+
     // Check each wall with stronger exponential repulsion
     // Left wall
     if future_pos.x < margin {
@@ -436,7 +441,7 @@ fn calculate_wall_avoidance(
         let strength = (1.0 - distance_to_wall / margin).powi(2);
         force.x -= strength;
     }
-    
+
     // Top wall
     if future_pos.y < margin {
         let distance_to_wall = future_pos.y.max(0.1);
@@ -449,38 +454,33 @@ fn calculate_wall_avoidance(
         let strength = (1.0 - distance_to_wall / margin).powi(2);
         force.y -= strength;
     }
-    
+
     // Add corner handling - stronger force when approaching corners
     let x_near_wall = future_pos.x < margin || future_pos.x > width - margin;
     let y_near_wall = future_pos.y < margin || future_pos.y > height - margin;
     if x_near_wall && y_near_wall {
         force *= corner_boost;
     }
-    
+
     force.normalize_or_zero()
 }
 
 /// Calculate static wall repulsion for zero/low velocity cases
-fn calculate_static_wall_repulsion(
-    pos: Vec2,
-    width: f32,
-    height: f32,
-    margin: f32,
-) -> Vec2 {
+fn calculate_static_wall_repulsion(pos: Vec2, width: f32, height: f32, margin: f32) -> Vec2 {
     let mut force = Vec2::ZERO;
-    
+
     // Simple position-based repulsion
     if pos.x < margin {
         force.x += (margin - pos.x) / margin;
     } else if pos.x > width - margin {
         force.x -= (pos.x - (width - margin)) / margin;
     }
-    
+
     if pos.y < margin {
         force.y += (margin - pos.y) / margin;
     } else if pos.y > height - margin {
         force.y -= (pos.y - (height - margin)) / margin;
     }
-    
+
     force.normalize_or_zero()
 }
