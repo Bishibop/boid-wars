@@ -11,7 +11,7 @@ pub struct PhysicsConfig {
     pub player_max_speed: f32,
     pub player_acceleration: f32,
     pub player_deceleration: f32,
-    pub player_collider_size: f32,
+    pub player_collider_size: f32, // Half-size for cuboid (31.2 for 62.4x62.4 sprite)
     pub player_damping_factor: f32,
 
     // Projectile physics
@@ -38,7 +38,7 @@ pub struct PhysicsConfig {
     pub ai_chase_shoot_distance: f32,
 
     // Boid physics
-    pub boid_radius: f32,
+    pub boid_radius: f32, // Radius for ball collider (12.0 for 24x24 sprite)
     
     // Boid aggression
     pub boid_aggression_memory_duration: Duration,
@@ -55,16 +55,16 @@ impl Default for PhysicsConfig {
             player_max_speed: 800.0,
             player_acceleration: 800.0,
             player_deceleration: 400.0,
-            player_collider_size: 5.0,
+            player_collider_size: 31.2, // Half of 62.4x62.4 sprite size
             player_damping_factor: 0.98,
 
             // Projectile physics
-            projectile_speed: 600.0,
+            projectile_speed: 900.0, // Increased from 600.0 for faster bullets
             projectile_lifetime: Duration::from_secs(3),
             projectile_damage: 25.0,
-            projectile_fire_rate: 4.0,
-            projectile_spawn_offset: 15.0,
-            projectile_collider_radius: 2.0,
+            projectile_fire_rate: 8.0, // Increased from 4.0 for faster firing
+            projectile_spawn_offset: 50.0, // Increased from 15.0 to spawn farther from ship
+            projectile_collider_radius: 9.0, // Radius for 18x18 sprite
 
             // Pool configuration
             projectile_pool_size: 500,
@@ -82,7 +82,7 @@ impl Default for PhysicsConfig {
             ai_chase_shoot_distance: 300.0,
 
             // Boid physics
-            boid_radius: 4.0,
+            boid_radius: 12.0, // Radius for 24x24 sprite (diameter = 24)
             
             // Boid aggression
             boid_aggression_memory_duration: Duration::from_secs(5),

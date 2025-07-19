@@ -88,6 +88,9 @@ pub fn run() {
         client_settings.performance_log_interval,
         TimerMode::Repeating,
     )));
+    
+    // Initialize debug settings
+    app.init_resource::<DebugSettings>();
 
     // Add systems
     app.add_systems(Startup, (setup_scene, connect_to_server, setup_ui));
@@ -98,6 +101,7 @@ pub fn run() {
             handle_connection_events,
             render_networked_entities,
             sync_position_to_transform,
+            update_player_rotation_to_mouse,
             send_player_input,
             debug_player_count,
             update_health_bars,
@@ -105,6 +109,10 @@ pub fn run() {
             cleanup_health_bars,
             handle_camera_zoom,
             smooth_interpolation_system,
+            toggle_debug_display,
+            render_collision_outlines,
+            update_collision_outline_sizes,
+            cleanup_collision_outlines,
         ),
     );
 
@@ -222,21 +230,21 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     info!("Loading game sprites...");
 
     // Load player sprite texture - using Ship_01 Level 1
-    let player_texture = asset_server.load("game-assets/sprites/Ship_LVL_1.png");
+    let player_texture = asset_server.load("sprites/Ship_LVL_1.png");
     commands.insert_resource(PlayerSprite(player_texture));
 
     // Load enemy sprite texture - using Pirate Ship 04
-    let enemy_texture = asset_server.load("game-assets/sprites/Ship_04.png");
+    let enemy_texture = asset_server.load("sprites/Ship_04.png");
     commands.insert_resource(EnemySprite(enemy_texture));
 
     // Load projectile sprite - using craftpix laser
-    let projectile_texture = asset_server.load("game-assets/sprites/laser1_small.png");
+    let projectile_texture = asset_server.load("sprites/laser1_small.png");
     commands.insert_resource(ProjectileSprite(projectile_texture));
 
     // Load background textures - using the derelict ship copy images
-    let background1 = asset_server.load("game-assets/backgrounds/derelict_ship_main.png");
-    let background2 = asset_server.load("game-assets/backgrounds/derelict_ship_2.png");
-    let background3 = asset_server.load("game-assets/backgrounds/derelict_ship_3.png");
+    let background1 = asset_server.load("backgrounds/derelict_ship_main.png");
+    let background2 = asset_server.load("backgrounds/derelict_ship_2.png");
+    let background3 = asset_server.load("backgrounds/derelict_ship_3.png");
 
     // Spawn a 2D camera centered on the game area
     let game_config = &*GAME_CONFIG;
@@ -368,6 +376,37 @@ struct EnemySprite(Handle<Image>);
 #[derive(Resource)]
 struct ProjectileSprite(Handle<Image>);
 
+/// Debug settings for collision visualization
+#[derive(Resource)]
+struct DebugSettings {
+    show_collisions: bool,
+    collision_color: Color,
+    collision_line_width: f32,
+    player_scale: f32,
+    boid_scale: f32,
+}
+
+impl Default for DebugSettings {
+    fn default() -> Self {
+        Self {
+            show_collisions: false,
+            collision_color: Color::srgba(0.0, 1.0, 0.0, 0.5), // Semi-transparent green
+            collision_line_width: 2.0,
+            player_scale: 1.0, // 1.0 = actual size, 2.0 = double size, etc.
+            boid_scale: 1.0,   // Separate scale for boids
+        }
+    }
+}
+
+/// Component to mark collision outline entities
+#[derive(Component)]
+struct CollisionOutline {
+    entity: Entity, // The entity this outline belongs to
+    is_player: bool, // true for player, false for boid
+}
+
+
+
 /// Marker component for background entities
 #[derive(Component)]
 struct Background;
@@ -427,7 +466,7 @@ fn render_networked_entities(
     enemy_sprite: Res<EnemySprite>,
     projectile_sprite: Res<ProjectileSprite>,
     asset_server: Res<AssetServer>,
-    players: Query<(Entity, &Position, &Rotation, &Player, Option<&Velocity>), UnrenderedPlayer>,
+    players: Query<(Entity, &Position, Option<&Rotation>, &Player, Option<&Velocity>), UnrenderedPlayer>,
     boids: Query<(Entity, &Position, Option<&Rotation>, Option<&Velocity>), UnrenderedBoid>,
     obstacles: Query<(Entity, &Position, &Obstacle), UnrenderedObstacle>,
     projectiles: Query<(Entity, &Position, Option<&Velocity>), UnrenderedProjectile>,
@@ -445,14 +484,20 @@ fn render_networked_entities(
     }
     // Add visual representation to networked players
     for (entity, position, rotation, _player, _velocity) in players.iter() {
+        let mut transform = Transform::from_translation(Vec3::new(position.x, position.y, 3.0));
+        
+        // Apply rotation if available
+        if let Some(rot) = rotation {
+            transform = transform.with_rotation(Quat::from_rotation_z(rot.angle - std::f32::consts::FRAC_PI_2));
+        }
+        
         commands.entity(entity).insert((
             Sprite {
                 image: player_sprite.0.clone(),
-                custom_size: Some(Vec2::new(48.0, 48.0)), // Set explicit size
+                custom_size: Some(Vec2::new(62.4, 62.4)), // 30% bigger (48 * 1.3)
                 ..default()
             },
-            Transform::from_translation(Vec3::new(position.x, position.y, 3.0))
-                .with_rotation(Quat::from_rotation_z(rotation.angle)),
+            transform,
         ));
     }
 
@@ -555,19 +600,20 @@ fn sync_position_to_transform(
             Option<&Velocity>,
             &mut Transform,
             Option<&Player>,
+            Option<&Projectile>,
             Option<&mut SmoothTransform>,
         ),
         Or<(Changed<Position>, Changed<Rotation>, Changed<Velocity>)>,
     >,
 ) {
-    for (entity, position, rotation, velocity, mut transform, player, smooth_transform) in
+    for (entity, position, rotation, velocity, mut transform, player, projectile, smooth_transform) in
         query.iter_mut()
     {
-        // Check if this is a boid that needs smooth interpolation
-        let is_boid = player.is_none(); // Non-players are boids
+        // Check if this entity needs smooth interpolation (only boids, not players or projectiles)
+        let needs_smoothing = player.is_none() && projectile.is_none();
 
-        if is_boid {
-            // Handle smooth interpolation for boids
+        if needs_smoothing {
+            // Handle smooth interpolation for boids only
             if let Some(mut smooth) = smooth_transform {
                 // Update targets
                 smooth.previous_position = smooth.target_position;
@@ -618,18 +664,47 @@ fn sync_position_to_transform(
                 });
             }
         } else {
-            // Players get direct updates (no smoothing for player)
+            // Players and projectiles get direct position updates (no smoothing)
             transform.translation.x = position.x;
             transform.translation.y = position.y;
+            
+            // Handle rotation for projectiles (players have their own rotation system)
+            if projectile.is_some() {
+                // Use velocity direction for projectile rotation
+                if let Some(vel) = velocity {
+                    if vel.length_squared() > 0.1 {
+                        let angle = vel.y.atan2(vel.x) - std::f32::consts::FRAC_PI_2;
+                        transform.rotation = Quat::from_rotation_z(angle);
+                    }
+                }
+            }
+            // Player rotation is handled by update_player_rotation_to_mouse
+        }
+    }
+}
 
-            // Player: always use rotation component (aim direction)
-            let angle = if let Some(rot) = rotation {
-                rot.angle
-            } else {
-                transform.rotation.to_euler(EulerRot::ZYX).0 // Keep current rotation
-            };
 
-            transform.rotation = Quat::from_rotation_z(angle);
+/// Update player sprite rotation to face mouse cursor
+fn update_player_rotation_to_mouse(
+    mut players: Query<(&Position, &mut Transform), With<Player>>,
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+) {
+    if let (Ok(window), Ok((camera, camera_transform))) = (windows.single(), cameras.single()) {
+        if let Some(cursor_pos) = window.cursor_position() {
+            // Convert cursor position to world coordinates
+            if let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) {
+                // Update rotation for all players (typically just one)
+                for (position, mut transform) in players.iter_mut() {
+                    // Calculate direction from player to mouse
+                    let direction = (world_pos - position.0).normalize_or_zero();
+                    if direction.length() > 0.1 {
+                        // Calculate angle and apply sprite offset
+                        let angle = direction.y.atan2(direction.x) - std::f32::consts::FRAC_PI_2;
+                        transform.rotation = Quat::from_rotation_z(angle);
+                    }
+                }
+            }
         }
     }
 }
@@ -852,3 +927,127 @@ fn handle_camera_zoom(
         }
     }
 }
+
+/// Toggle debug display with C key
+fn toggle_debug_display(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut debug_settings: ResMut<DebugSettings>,
+) {
+    if keys.just_pressed(KeyCode::KeyC) {
+        debug_settings.show_collisions = !debug_settings.show_collisions;
+        info!("Debug collision display: {}", debug_settings.show_collisions);
+    }
+}
+
+/// Render collision outlines for players and boids
+fn render_collision_outlines(
+    mut commands: Commands,
+    debug_settings: Res<DebugSettings>,
+    players: Query<(Entity, &Position), With<Player>>,
+    boids: Query<(Entity, &Position), With<Boid>>,
+    mut existing_outlines: Query<(&mut Transform, &CollisionOutline), With<CollisionOutline>>,
+) {
+    if !debug_settings.show_collisions {
+        return;
+    }
+
+    // Track which entities already have outlines
+    let mut outlined_entities: std::collections::HashSet<Entity> = existing_outlines
+        .iter()
+        .map(|(_, outline)| outline.entity)
+        .collect();
+
+    // Update positions of existing outlines
+    for (mut transform, outline) in existing_outlines.iter_mut() {
+        // Update position based on the target entity
+        if let Ok((_, position)) = players.get(outline.entity) {
+            transform.translation.x = position.x;
+            transform.translation.y = position.y;
+        } else if let Ok((_, position)) = boids.get(outline.entity) {
+            transform.translation.x = position.x;
+            transform.translation.y = position.y;
+        }
+    }
+
+    // Create outlines for new players
+    for (entity, position) in players.iter() {
+        if !outlined_entities.contains(&entity) {
+            let size = 62.4 * debug_settings.player_scale; // Player sprite size
+            commands.spawn((
+                Sprite {
+                    color: debug_settings.collision_color,
+                    custom_size: Some(Vec2::new(size, size)), // Player collision box scaled
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(position.x, position.y, 10.0)),
+                CollisionOutline { entity, is_player: true },
+            ));
+            outlined_entities.insert(entity);
+        }
+    }
+
+    // Create outlines for new boids (circular colliders)
+    for (entity, position) in boids.iter() {
+        if !outlined_entities.contains(&entity) {
+            let size = 24.0 * debug_settings.boid_scale; // Boid sprite size
+            commands.spawn((
+                Sprite {
+                    color: debug_settings.collision_color,
+                    custom_size: Some(Vec2::new(size, size)), // Boid collision circle scaled
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(position.x, position.y, 10.0)),
+                CollisionOutline { entity, is_player: false },
+            ));
+            outlined_entities.insert(entity);
+        }
+    }
+}
+
+/// Update collision outline sizes when scale changes
+fn update_collision_outline_sizes(
+    debug_settings: Res<DebugSettings>,
+    mut collision_outlines: Query<(&mut Sprite, &CollisionOutline)>,
+) {
+    if !debug_settings.show_collisions {
+        return;
+    }
+
+    for (mut sprite, outline) in collision_outlines.iter_mut() {
+        let size = if outline.is_player {
+            62.4 * debug_settings.player_scale // Player sprite size
+        } else {
+            24.0 * debug_settings.boid_scale   // Boid sprite size
+        };
+        sprite.custom_size = Some(Vec2::new(size, size));
+        sprite.color = debug_settings.collision_color; // Also update color if changed
+    }
+}
+
+/// Clean up collision outlines when debug is disabled or entities are removed
+fn cleanup_collision_outlines(
+    mut commands: Commands,
+    debug_settings: Res<DebugSettings>,
+    collision_outlines: Query<(Entity, &CollisionOutline)>,
+    players: Query<Entity, With<Player>>,
+    boids: Query<Entity, With<Boid>>,
+) {
+    if !debug_settings.show_collisions {
+        // Remove all collision outlines when debug is disabled
+        for (outline_entity, _) in collision_outlines.iter() {
+            commands.entity(outline_entity).despawn();
+        }
+        return;
+    }
+
+    // Remove outlines for entities that no longer exist
+    for (outline_entity, outline) in collision_outlines.iter() {
+        let target_exists = players.contains(outline.entity) || boids.contains(outline.entity);
+        if !target_exists {
+            commands.entity(outline_entity).despawn();
+        }
+    }
+}
+
+
+

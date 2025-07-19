@@ -169,19 +169,20 @@ fn spawn_collision_objects_delayed(
     mut commands: Commands,
     players: Query<&boid_wars_shared::Player>,
     mut spawned: Local<bool>,
+    physics_config: Res<PhysicsConfig>,
 ) {
     // Wait until at least one player is connected and we haven't spawned yet
     if !players.is_empty() && !*spawned {
         *spawned = true;
         // Spawn peaceful boids instead of AI players
 
-        spawn_boid_flock(&mut commands);
+        spawn_boid_flock(&mut commands, &physics_config);
         spawn_static_obstacles(&mut commands);
     }
 }
 
 // Helper function to spawn peaceful boids using the group system
-fn spawn_boid_flock(commands: &mut Commands) {
+fn spawn_boid_flock(commands: &mut Commands, physics_config: &PhysicsConfig) {
     let _game_config = &*GAME_CONFIG;
     
     // Get resources
@@ -216,6 +217,7 @@ fn spawn_boid_flock(commands: &mut Commands) {
         simple_territory,
         &mut group_id_counter,
         &mut boid_id_counter,
+        physics_config,
     );
     spawned_groups += 1;
     
@@ -233,6 +235,7 @@ fn spawn_boid_flock(commands: &mut Commands) {
             territory.clone(),
             &mut group_id_counter,
             &mut boid_id_counter,
+            physics_config,
         );
         spawned_groups += 1;
     }

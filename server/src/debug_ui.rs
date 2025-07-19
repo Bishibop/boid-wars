@@ -218,10 +218,10 @@ fn debug_ui_system(
                 );
 
                 ui.add(
-                    egui::Slider::new(&mut physics_config.player_collider_size, 1.0..=20.0)
+                    egui::Slider::new(&mut physics_config.player_collider_size, 1.0..=50.0)
                         .text("Player Collider Size"),
                 )
-                .on_hover_text("Size of player collision box");
+                .on_hover_text("Size of player collision box (half-width for cuboid)");
 
                 // Boid Collision
                 ui.separator();
@@ -236,7 +236,7 @@ fn debug_ui_system(
                 );
 
                 ui.add(
-                    egui::Slider::new(&mut physics_config.boid_radius, 1.0..=15.0)
+                    egui::Slider::new(&mut physics_config.boid_radius, 1.0..=25.0)
                         .text("Boid Radius"),
                 )
                 .on_hover_text("Radius of boid collision circle");

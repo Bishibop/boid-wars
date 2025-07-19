@@ -20,7 +20,7 @@ const LEFT_WALL_NAME: &str = "Left Wall";
 const RIGHT_WALL_NAME: &str = "Right Wall";
 
 // Re-export for backward compatibility
-pub const BOID_RADIUS: f32 = 4.0; // This is duplicated in PhysicsConfig
+// Removed: BOID_RADIUS constant - now using PhysicsConfig.boid_radius
 
 /// Pre-allocated buffers for hot path operations
 #[derive(Resource)]
@@ -579,8 +579,8 @@ impl Default for WeaponStats {
     fn default() -> Self {
         Self {
             damage: 10.0, // Updated for combat design: players deal 10 damage
-            fire_rate: 4.0,
-            projectile_speed: 600.0,
+            fire_rate: 8.0, // Increased from 4.0 for faster firing
+            projectile_speed: 900.0, // Increased from 600.0 for faster bullets
             projectile_lifetime: Duration::from_secs(3),
             spread: 0.0,
         }
@@ -961,7 +961,7 @@ fn shooting_system(
             player_aggression.mark_aggressive(entity);
 
             // Spawn projectile - offset in the aim direction to avoid self-collision
-            let spawn_offset = config.projectile_spawn_offset;
+            let spawn_offset = 50.0; // Further increased offset for player bullets
             let projectile_spawn_pos =
                 transform.translation.truncate() + input.aim_direction * spawn_offset; // Spawn in aim direction
 
@@ -1547,6 +1547,7 @@ fn return_projectiles_to_pool(
         }
     }
 }
+
 
 /// System to clean up orphaned entities
 fn cleanup_system(

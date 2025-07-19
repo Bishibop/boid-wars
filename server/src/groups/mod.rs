@@ -1,4 +1,5 @@
-use crate::physics::{GameCollisionGroups, BOID_RADIUS};
+use crate::physics::GameCollisionGroups;
+use crate::config::PhysicsConfig;
 use crate::position_sync::SyncPosition;
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
@@ -121,6 +122,7 @@ pub fn spawn_boid_group(
     territory: TerritoryData,
     group_id_counter: &mut GroupIdCounter,
     boid_id_counter: &mut BoidIdCounter,
+    physics_config: &PhysicsConfig,
 ) -> Entity {
     // Generate unique group ID
     let group_id = group_id_counter.0;
@@ -218,7 +220,7 @@ pub fn spawn_boid_group(
             },
             // Physics components
             RigidBody::Dynamic,
-            Collider::ball(BOID_RADIUS),
+            Collider::ball(physics_config.boid_radius),
             GameCollisionGroups::boid(),
             ActiveEvents::COLLISION_EVENTS,
             Transform::from_xyz(x, y, 0.0),
