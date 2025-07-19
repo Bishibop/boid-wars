@@ -54,23 +54,23 @@ impl Default for FlockingConfig {
             alignment_weight: 1.0,
             cohesion_weight: 1.0,
 
-            // Movement parameters
-            max_speed: 200.0,
-            max_force: 400.0,
+            // Movement parameters - increased for more responsive movement
+            max_speed: 350.0, // Increased from 200.0
+            max_force: 600.0, // Increased from 400.0
 
-            // Boundary behavior
-            boundary_margin: 50.0,
-            boundary_turn_force: 2.0,
-            wall_avoidance_weight: 4.0,
+            // Boundary behavior - increased for better wall avoidance
+            boundary_margin: 80.0,      // Increased from 50.0
+            boundary_turn_force: 3.0,   // Increased from 2.0
+            wall_avoidance_weight: 5.0, // Balanced for flow vs safety
 
-            // Obstacle avoidance
-            obstacle_avoidance_radius: 80.0,
-            obstacle_avoidance_weight: 3.0,
-            obstacle_prediction_time: 0.5,
+            // Obstacle avoidance - slightly reduced weights for better flow
+            obstacle_avoidance_radius: 100.0, // Increased from 80.0
+            obstacle_avoidance_weight: 4.0,   // Reduced from 5.0 for better flow
+            obstacle_prediction_time: 0.6,    // Reduced from 0.8 for less early avoidance
 
             // Player avoidance
-            player_avoidance_radius: 100.0,
-            player_avoidance_weight: 2.5,
+            player_avoidance_radius: 120.0, // Increased from 100.0
+            player_avoidance_weight: 2.5,   // Reduced from 3.0 for better flow
 
             // Avoidance thresholds and constants
             obstacle_danger_zone: 40.0,
@@ -300,23 +300,22 @@ pub struct FlockingPlugin;
 impl Plugin for FlockingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FlockingConfig>();
-        app.init_resource::<crate::spatial_grid::SpatialGrid>();
+        // Note: SpatialGrid is initialized by SpatialGridPlugin
 
         app.add_systems(
             FixedUpdate,
             (
-                crate::spatial_grid::update_spatial_grid,
-                update_flocking,
-                sync_boid_velocities,
+                // Note: spatial grid update is handled by SpatialGridPlugin
+                update_flocking.in_set(crate::spatial_grid::SpatialGridSet::Read),
+                sync_boid_velocities.after(update_flocking),
                 // Physics will move the boids
-            )
-                .chain(),
+            ),
         );
 
         // Sync positions after physics
         app.add_systems(Update, move_boids);
 
-        info!("Flocking plugin initialized with spatial grid");
+        info!("Flocking plugin initialized");
     }
 }
 
@@ -349,8 +348,11 @@ fn calculate_obstacle_avoidance(
     let distance = diff.length();
 
     if distance < 0.001 {
-        // Inside obstacle, push out
-        Vec2::new(1.0, 0.0) // Default push direction
+        // Inside obstacle, push out strongly
+        Vec2::new(1.0, 0.0) * 2.0 // Strong push
+    } else if distance < danger_zone * 0.5 {
+        // Very close - emergency avoidance
+        diff.normalize() * 2.0
     } else if distance < danger_zone {
         // Exponential repulsion
         diff.normalize() * (1.0 - distance / danger_zone).powi(2)
@@ -434,26 +436,43 @@ fn calculate_wall_avoidance(
     // Left wall
     if future_pos.x < margin {
         let distance_to_wall = future_pos.x.max(0.1); // Avoid division by zero
-        let strength = (1.0 - distance_to_wall / margin).powi(2);
+        let strength = if distance_to_wall < margin * 0.3 {
+            // Emergency repulsion when very close
+            3.0
+        } else {
+            (1.0 - distance_to_wall / margin).powi(2)
+        };
         force.x += strength;
     }
     // Right wall
     else if future_pos.x > width - margin {
         let distance_to_wall = (width - future_pos.x).max(0.1);
-        let strength = (1.0 - distance_to_wall / margin).powi(2);
+        let strength = if distance_to_wall < margin * 0.3 {
+            3.0
+        } else {
+            (1.0 - distance_to_wall / margin).powi(2)
+        };
         force.x -= strength;
     }
 
     // Top wall
     if future_pos.y < margin {
         let distance_to_wall = future_pos.y.max(0.1);
-        let strength = (1.0 - distance_to_wall / margin).powi(2);
+        let strength = if distance_to_wall < margin * 0.3 {
+            3.0
+        } else {
+            (1.0 - distance_to_wall / margin).powi(2)
+        };
         force.y += strength;
     }
     // Bottom wall
     else if future_pos.y > height - margin {
         let distance_to_wall = (height - future_pos.y).max(0.1);
-        let strength = (1.0 - distance_to_wall / margin).powi(2);
+        let strength = if distance_to_wall < margin * 0.3 {
+            3.0
+        } else {
+            (1.0 - distance_to_wall / margin).powi(2)
+        };
         force.y -= strength;
     }
 

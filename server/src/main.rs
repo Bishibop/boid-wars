@@ -89,6 +89,7 @@ fn main() {
         .add_plugins(SpatialGridPlugin) // Must be before systems that use it
         .add_plugins(PhysicsPlugin::default())
         .add_plugins(PositionSyncPlugin)
+        .add_plugins(flocking::FlockingPlugin) // Add flocking behavior
         .add_plugins(groups::BoidGroupPlugin)
         .add_plugins(BoidWarsServerPlugin);
     
