@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for Boid Wars
 # Build stage
-FROM rust:alpine AS builder
+FROM rust:1.88.0-alpine AS builder
 
 WORKDIR /app
 
@@ -33,7 +33,7 @@ RUN mkdir -p server/src shared/src bevy-client/src server/benches && \
 RUN --mount=type=cache,target=/usr/local/cargo/git/db \
     --mount=type=cache,target=/usr/local/cargo/registry/ \
     --mount=type=cache,target=/app/target/ \
-    cargo build --release --bin boid-wars-server
+    cargo build --release --bin boid-wars-server --locked
 
 # Remove dummy files and copy actual source
 RUN rm -rf server/src shared/src bevy-client/src server/benches
@@ -47,11 +47,11 @@ COPY bevy-client/src ./bevy-client/src
 RUN --mount=type=cache,target=/usr/local/cargo/git/db \
     --mount=type=cache,target=/usr/local/cargo/registry/ \
     --mount=type=cache,target=/app/target/ \
-    cargo build --release --bin boid-wars-server && \
+    cargo build --release --bin boid-wars-server --locked && \
     cp ./target/release/boid-wars-server /bin/server
 
 # WASM client build stage
-FROM rust:alpine AS wasm-builder
+FROM rust:1.88.0-alpine AS wasm-builder
 
 WORKDIR /app
 
@@ -81,7 +81,7 @@ RUN mkdir -p server/src server/benches && \
     echo "// dummy benchmark" > server/benches/spatial_grid_bench.rs
 
 # Build WASM client
-RUN cd bevy-client && wasm-pack build --target web --out-dir pkg --release
+RUN cd bevy-client && wasm-pack build --target web --out-dir pkg --release -- --locked
 
 # Runtime stage
 FROM alpine:3.18 AS runtime

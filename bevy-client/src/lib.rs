@@ -78,6 +78,7 @@ pub fn run() {
             handle_connection_events,
             render_networked_entities,
             sync_position_to_transform,
+            update_player_rotation_to_mouse,
             send_player_input,
             debug_player_count,
             update_health_bars,
@@ -348,6 +349,32 @@ fn sync_position_to_transform(mut query: Query<(&Position, &mut Transform), Chan
     for (position, mut transform) in query.iter_mut() {
         transform.translation.x = position.x;
         transform.translation.y = position.y;
+        // Rotation is handled by update_player_rotation_to_mouse
+    }
+}
+
+/// Update player rotation to face the mouse cursor
+fn update_player_rotation_to_mouse(
+    mut player_query: Query<(&Position, &mut Transform), With<Player>>,
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+) {
+    if let (Ok(window), Ok((camera, camera_transform))) = (windows.single(), cameras.single()) {
+        if let Some(cursor_pos) = window.cursor_position() {
+            // Convert cursor position to world coordinates
+            if let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) {
+                // Update rotation for all players (typically just one)
+                for (position, mut transform) in player_query.iter_mut() {
+                    // Calculate direction from player to mouse
+                    let direction = (world_pos - position.0).normalize_or_zero();
+                    if direction.length() > 0.1 {
+                        // Calculate angle for square sprite (no offset needed)
+                        let angle = direction.y.atan2(direction.x);
+                        transform.rotation = Quat::from_rotation_z(angle);
+                    }
+                }
+            }
+        }
     }
 }
 
