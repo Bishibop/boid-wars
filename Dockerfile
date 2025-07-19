@@ -1,19 +1,19 @@
 # Multi-stage Dockerfile for Boid Wars
 # Build stage
-FROM rust:1.88.0-alpine AS builder
+FROM rust:1.88.0 AS builder
 
 WORKDIR /app
 
 # Install build dependencies
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     clang \
     lld \
-    musl-dev \
     git \
-    pkgconfig \
-    openssl-dev \
-    alsa-lib-dev \
-    eudev-dev
+    pkg-config \
+    libssl-dev \
+    libasound2-dev \
+    libudev-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy workspace configuration
 COPY Cargo.toml Cargo.lock ./
@@ -21,10 +21,12 @@ COPY server/Cargo.toml ./server/
 COPY shared/Cargo.toml ./shared/
 COPY bevy-client/Cargo.toml ./bevy-client/
 
-# Create dummy source files for dependency caching
-RUN mkdir -p server/src shared/src bevy-client/src server/benches && \
+# Copy actual shared source files first (they're small and change less frequently)
+COPY shared/src ./shared/src
+
+# Create dummy source files for server
+RUN mkdir -p server/src bevy-client/src server/benches && \
     echo "fn main() {}" > server/src/main.rs && \
-    echo "// dummy" > shared/src/lib.rs && \
     echo "// dummy" > bevy-client/src/lib.rs && \
     echo "// dummy benchmark" > server/benches/physics_benchmark.rs && \
     echo "// dummy benchmark" > server/benches/spatial_grid_bench.rs
@@ -36,11 +38,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/git/db \
     cargo build --release --bin boid-wars-server --locked
 
 # Remove dummy files and copy actual source
-RUN rm -rf server/src shared/src bevy-client/src server/benches
+RUN rm -rf server/src bevy-client/src server/benches
 COPY server/src ./server/src
 COPY server/benches ./server/benches
 COPY server/tests ./server/tests
-COPY shared/src ./shared/src
 COPY bevy-client/src ./bevy-client/src
 
 # Build the actual application
@@ -51,12 +52,18 @@ RUN --mount=type=cache,target=/usr/local/cargo/git/db \
     cp ./target/release/boid-wars-server /bin/server
 
 # WASM client build stage
-FROM rust:1.88.0-alpine AS wasm-builder
+FROM rust:1.88.0 AS wasm-builder
 
 WORKDIR /app
 
 # Install build dependencies
-RUN apk add --no-cache clang lld musl-dev git pkgconfig openssl-dev
+RUN apt-get update && apt-get install -y \
+    clang \
+    lld \
+    git \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Add wasm32 target
 RUN rustup target add wasm32-unknown-unknown
@@ -70,7 +77,7 @@ COPY server/Cargo.toml ./server/
 COPY shared/Cargo.toml ./shared/
 COPY bevy-client/Cargo.toml ./bevy-client/
 
-# Copy source code
+# Copy source code and cargo config
 COPY bevy-client ./bevy-client
 COPY shared ./shared
 
@@ -81,33 +88,44 @@ RUN mkdir -p server/src server/benches && \
     echo "// dummy benchmark" > server/benches/spatial_grid_bench.rs
 
 # Build WASM client
-RUN cd bevy-client && wasm-pack build --target web --out-dir pkg --release -- --locked
+# The getrandom crate needs the js feature for wasm32-unknown-unknown
+# We need to ensure all dependencies use the correct features
+RUN cd bevy-client && \
+    wasm-pack build --target web --out-dir pkg --release --locked
 
 # Runtime stage
-FROM alpine:3.18 AS runtime
+FROM debian:bookworm-slim AS runtime
 
 # Install runtime dependencies
-RUN apk --no-cache add \
+RUN apt-get update && apt-get install -y \
     ca-certificates \
-    tzdata
+    tzdata \
+    python3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Create non-root user
-RUN addgroup -g 1001 -S appuser && \
-    adduser -S -u 1001 -G appuser appuser
+RUN groupadd -g 1001 appuser && \
+    useradd -u 1001 -g appuser -m -s /bin/bash appuser
 
 # Copy server binary
 COPY --from=builder /bin/server /app/server
 
 # Copy WASM client assets
-COPY --from=wasm-builder /app/bevy-client/pkg /app/static/
+COPY --from=wasm-builder /app/bevy-client/pkg /app/static/pkg/
 COPY --from=wasm-builder /app/bevy-client/index.html /app/static/
 COPY --from=wasm-builder /app/bevy-client/demo.html /app/static/
 
 # Copy game assets
 # TODO: Update this to "assets" when assets-worktree gets merged back
 COPY assets-worktree/assets /app/static/assets/
+
+# Copy startup scripts
+COPY scripts/start-production.sh /app/start-production.sh
+COPY scripts/simple-http-ws-proxy.py /app/scripts/simple-http-ws-proxy.py
+RUN chmod +x /app/start-production.sh
 
 # Set ownership
 RUN chown -R appuser:appuser /app
@@ -119,5 +137,5 @@ USER appuser
 EXPOSE 8080
 
 
-# Run the server
-CMD ["./server"]
+# Run both servers using the startup script
+CMD ["/app/start-production.sh"]

@@ -6,8 +6,8 @@
 app = 'boid-wars'
 primary_region = 'dfw'
 
-[build]
-  dockerfile = 'Dockerfile'
+# Build is handled locally, images pushed to registry
+# No build section needed for image-based deployments
 
 [env]
   BOID_WARS_BOID_SPEED = '150.0'
@@ -46,5 +46,5 @@ primary_region = 'dfw'
     grace_period = '10s'
 
 [[vm]]
-  size = 'shared-cpu-4x'
-  memory = '2gb'
+  size = 'performance-8x'
+  memory = '16gb'
