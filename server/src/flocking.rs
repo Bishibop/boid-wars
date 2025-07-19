@@ -54,9 +54,9 @@ impl Default for FlockingConfig {
             alignment_weight: 1.0,
             cohesion_weight: 1.0,
 
-            // Movement parameters - increased for more responsive movement
-            max_speed: 350.0, // Increased from 200.0
-            max_force: 600.0, // Increased from 400.0
+            // Movement parameters - increased 50% more for even faster movement
+            max_speed: 1050.0, // 50% increase from 700.0
+            max_force: 1800.0, // 50% increase from 1200.0
 
             // Boundary behavior - increased for better wall avoidance
             boundary_margin: 80.0,      // Increased from 50.0
