@@ -1359,7 +1359,14 @@ fn collision_system(
     }
 
     // Process player collisions
-    for &(projectile_entity, player_entity, damage, _owner) in &buffers.player_collision_buffer {
+    for &(projectile_entity, player_entity, damage, owner) in &buffers.player_collision_buffer {
+        // Skip if player is hitting themselves
+        if let Some(owner_entity) = owner {
+            if owner_entity == player_entity {
+                continue;
+            }
+        }
+
         if let Ok((mut player, health_opt)) = health_queries.p0().get_mut(player_entity) {
             // Hit a player - apply damage with clamping
             player.health = (player.health - damage).max(0.0);
