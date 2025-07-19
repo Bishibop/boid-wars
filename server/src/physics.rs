@@ -292,13 +292,13 @@ impl Plugin for PhysicsPlugin {
         app
             // Add Rapier2D physics plugin with no gravity for top-down space game
             .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0));
-        
+
         // Only add debug render plugin in debug builds and if enabled
         #[cfg(debug_assertions)]
         if self.enable_debug_render {
             app.add_plugins(RapierDebugRenderPlugin::default());
         }
-        
+
         app
             // Add configuration resources
             .insert_resource(physics_config)

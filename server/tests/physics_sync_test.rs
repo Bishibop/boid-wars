@@ -301,7 +301,7 @@ fn create_test_app() -> App {
     // Add minimal plugins needed for testing
     app.add_plugins(MinimalPlugins);
     app.add_plugins(TransformPlugin);
-    
+
     // Add our plugins in the correct order
     app.add_plugins(SpatialGridPlugin); // Must be before PhysicsPlugin
     app.add_plugins(boid_wars_server::physics::PhysicsPlugin {
