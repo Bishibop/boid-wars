@@ -32,8 +32,9 @@ opt-level = 1
 opt-level = 3
 
 [profile.release]
-lto = true
-codegen-units = 1
+lto = "thin"  # Use thin LTO instead of fat LTO - much less memory
+codegen-units = 16  # More codegen units = less memory per unit
+opt-level = 2  # Slightly less aggressive optimization
 
 
 
