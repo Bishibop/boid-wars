@@ -49,3 +49,16 @@ boid-simulation-worktree/
 
 # Test scripts
 test_compile.sh
+
+# Large asset packs (keep local, don't commit)
+# Ignore all source asset directories
+assets/craftpix-*/
+assets/Shmup*/
+assets/Items/
+assets/processed/
+
+# Also ignore the original copy files in root
+assets/*copy*.png
+
+# Track only the curated game assets
+!assets/game-assets/

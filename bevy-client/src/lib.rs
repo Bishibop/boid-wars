@@ -1,3 +1,4 @@
+use bevy::asset::AssetMetaCheck;
 use bevy::prelude::*;
 use boid_wars_shared::*;
 use lightyear::prelude::client::*;
@@ -27,6 +28,20 @@ struct HealthBarLink {
     fill: Entity,
 }
 
+// Client-side smooth interpolation component
+#[derive(Component)]
+struct SmoothTransform {
+    previous_position: Vec2,
+    target_position: Vec2,
+    previous_rotation: f32,
+    target_rotation: f32,
+    interpolation_speed: f32,
+    // Enhanced smoothing
+    velocity: Vec2,
+    angular_velocity: f32,
+    smoothing_factor: f32,
+}
+
 // Setup panic hook for better error messages in browser console
 #[wasm_bindgen]
 pub fn run() {
@@ -50,6 +65,11 @@ pub fn run() {
             })
             .set(bevy::render::RenderPlugin {
                 synchronous_pipeline_compilation: true,
+                ..default()
+            })
+            .set(AssetPlugin {
+                // Disable .meta file loading to avoid 404 errors
+                meta_check: AssetMetaCheck::Never,
                 ..default()
             })
             .disable::<bevy::audio::AudioPlugin>(),
@@ -78,12 +98,13 @@ pub fn run() {
             handle_connection_events,
             render_networked_entities,
             sync_position_to_transform,
-            update_player_rotation_to_mouse,
             send_player_input,
             debug_player_count,
             update_health_bars,
             update_boid_health_bar_positions,
             cleanup_health_bars,
+            handle_camera_zoom,
+            smooth_interpolation_system,
         ),
     );
 
@@ -197,9 +218,82 @@ fn setup_ui(mut commands: Commands) {
 }
 
 /// Scene setup
-fn setup_scene(mut commands: Commands, _asset_server: Res<AssetServer>) {
+fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
+    info!("Loading game sprites...");
+
+    // Load player sprite texture - using Ship_01 Level 1
+    let player_texture = asset_server.load("game-assets/sprites/Ship_LVL_1.png");
+    commands.insert_resource(PlayerSprite(player_texture));
+
+    // Load enemy sprite texture - using Pirate Ship 04
+    let enemy_texture = asset_server.load("game-assets/sprites/Ship_04.png");
+    commands.insert_resource(EnemySprite(enemy_texture));
+
+    // Load projectile sprite - using craftpix laser
+    let projectile_texture = asset_server.load("game-assets/sprites/laser1_small.png");
+    commands.insert_resource(ProjectileSprite(projectile_texture));
+
+    // Load background textures - using the derelict ship copy images
+    let background1 = asset_server.load("game-assets/backgrounds/derelict_ship_main.png");
+    let background2 = asset_server.load("game-assets/backgrounds/derelict_ship_2.png");
+    let background3 = asset_server.load("game-assets/backgrounds/derelict_ship_3.png");
+
     // Spawn a 2D camera centered on the game area
     let game_config = &*GAME_CONFIG;
+
+    // Spawn the three background derelict ships with offsets and random rotations
+    let center_x = game_config.game_width * 0.5;
+    let center_y = game_config.game_height * 0.5;
+    let offset_distance = 1500.0;
+
+    // First ship - top-left direction
+    commands.spawn((
+        Sprite {
+            image: background1,
+            color: Color::srgba(0.25, 0.25, 0.25, 1.0), // Dark overlay
+            ..default()
+        },
+        Transform::from_xyz(
+            center_x - offset_distance * 0.7,
+            center_y + offset_distance * 0.7,
+            1.0, // Background layer
+        )
+        .with_rotation(Quat::from_rotation_z(15.0_f32.to_radians())),
+        Background,
+    ));
+
+    // Second ship - bottom direction
+    commands.spawn((
+        Sprite {
+            image: background2,
+            color: Color::srgba(0.25, 0.25, 0.25, 1.0), // Dark overlay
+            ..default()
+        },
+        Transform::from_xyz(
+            center_x,
+            center_y - offset_distance,
+            1.0, // Background layer
+        )
+        .with_rotation(Quat::from_rotation_z(-30.0_f32.to_radians())),
+        Background,
+    ));
+
+    // Third ship - right direction
+    commands.spawn((
+        Sprite {
+            image: background3,
+            color: Color::srgba(0.25, 0.25, 0.25, 1.0), // Dark overlay
+            ..default()
+        },
+        Transform::from_xyz(
+            center_x + offset_distance,
+            center_y + offset_distance * 0.2,
+            1.0, // Background layer
+        )
+        .with_rotation(Quat::from_rotation_z(45.0_f32.to_radians())),
+        Background,
+    ));
+
     commands.spawn((
         Camera2d,
         Transform::from_xyz(
@@ -222,7 +316,7 @@ fn setup_scene(mut commands: Commands, _asset_server: Res<AssetServer>) {
         Transform::from_xyz(
             game_config.game_width / 2.0,
             game_config.game_height - boundary_width / 2.0,
-            0.0,
+            2.0,
         ),
     ));
 
@@ -232,7 +326,7 @@ fn setup_scene(mut commands: Commands, _asset_server: Res<AssetServer>) {
             boundary_color,
             Vec2::new(game_config.game_width, boundary_width),
         ),
-        Transform::from_xyz(game_config.game_width / 2.0, boundary_width / 2.0, 0.0),
+        Transform::from_xyz(game_config.game_width / 2.0, boundary_width / 2.0, 2.0),
     ));
 
     // Left boundary
@@ -241,7 +335,7 @@ fn setup_scene(mut commands: Commands, _asset_server: Res<AssetServer>) {
             boundary_color,
             Vec2::new(boundary_width, game_config.game_height),
         ),
-        Transform::from_xyz(boundary_width / 2.0, game_config.game_height / 2.0, 0.0),
+        Transform::from_xyz(boundary_width / 2.0, game_config.game_height / 2.0, 2.0),
     ));
 
     // Right boundary
@@ -253,7 +347,7 @@ fn setup_scene(mut commands: Commands, _asset_server: Res<AssetServer>) {
         Transform::from_xyz(
             game_config.game_width - boundary_width / 2.0,
             game_config.game_height / 2.0,
-            0.0,
+            2.0,
         ),
     ));
 }
@@ -261,6 +355,22 @@ fn setup_scene(mut commands: Commands, _asset_server: Res<AssetServer>) {
 /// Performance monitoring timer resource
 #[derive(Resource)]
 struct PerformanceTimer(Timer);
+
+/// Resource to hold player sprite texture
+#[derive(Resource)]
+struct PlayerSprite(Handle<Image>);
+
+/// Resource to hold enemy sprite texture
+#[derive(Resource)]
+struct EnemySprite(Handle<Image>);
+
+/// Resource to hold projectile sprite texture
+#[derive(Resource)]
+struct ProjectileSprite(Handle<Image>);
+
+/// Marker component for background entities
+#[derive(Component)]
+struct Background;
 
 /// Simple performance monitoring system
 fn performance_monitor(
@@ -313,24 +423,64 @@ type UnrenderedProjectile = (With<Projectile>, Without<Sprite>);
 /// Render networked entities (players, boids, obstacles, and projectiles from server)
 fn render_networked_entities(
     mut commands: Commands,
-    players: Query<(Entity, &Position, &Player), UnrenderedPlayer>,
-    boids: Query<(Entity, &Position), UnrenderedBoid>,
+    player_sprite: Res<PlayerSprite>,
+    enemy_sprite: Res<EnemySprite>,
+    projectile_sprite: Res<ProjectileSprite>,
+    asset_server: Res<AssetServer>,
+    players: Query<(Entity, &Position, &Rotation, &Player, Option<&Velocity>), UnrenderedPlayer>,
+    boids: Query<(Entity, &Position, Option<&Rotation>, Option<&Velocity>), UnrenderedBoid>,
     obstacles: Query<(Entity, &Position, &Obstacle), UnrenderedObstacle>,
-    projectiles: Query<(Entity, &Position), UnrenderedProjectile>,
+    projectiles: Query<(Entity, &Position, Option<&Velocity>), UnrenderedProjectile>,
 ) {
+    // Check if sprites are loaded
+    let player_loaded = asset_server.is_loaded(&player_sprite.0);
+    let enemy_loaded = asset_server.is_loaded(&enemy_sprite.0);
+
+    if !player_loaded || !enemy_loaded {
+        info!(
+            "Waiting for sprites to load... Player: {}, Enemy: {}",
+            player_loaded, enemy_loaded
+        );
+        return;
+    }
     // Add visual representation to networked players
-    for (entity, position, _player) in players.iter() {
+    for (entity, position, rotation, _player, _velocity) in players.iter() {
         commands.entity(entity).insert((
-            Sprite::from_color(Color::srgb(0.0, 1.0, 0.0), Vec2::new(10.0, 10.0)), // Original small size
-            Transform::from_translation(Vec3::new(position.x, position.y, 1.0)),
+            Sprite {
+                image: player_sprite.0.clone(),
+                custom_size: Some(Vec2::new(48.0, 48.0)), // Set explicit size
+                ..default()
+            },
+            Transform::from_translation(Vec3::new(position.x, position.y, 3.0))
+                .with_rotation(Quat::from_rotation_z(rotation.angle)),
         ));
     }
 
     // Add visual representation to networked boids (includes AI players)
-    for (entity, position) in boids.iter() {
+    for (entity, position, rotation, velocity) in boids.iter() {
+        // Use velocity direction if available and significant, otherwise use rotation
+        let angle = if let Some(vel) = velocity {
+            if vel.length_squared() > 0.1 {
+                vel.y.atan2(vel.x) - std::f32::consts::FRAC_PI_2 // Subtract 90 degrees to face forward
+            } else if let Some(rot) = rotation {
+                rot.angle
+            } else {
+                0.0
+            }
+        } else if let Some(rot) = rotation {
+            rot.angle
+        } else {
+            0.0
+        };
+
         commands.entity(entity).insert((
-            Sprite::from_color(Color::srgb(1.0, 0.0, 0.0), Vec2::new(8.0, 8.0)), // Original small size
-            Transform::from_translation(Vec3::new(position.x, position.y, 1.0)),
+            Sprite {
+                image: enemy_sprite.0.clone(),
+                custom_size: Some(Vec2::new(24.0, 24.0)), // Set explicit size for enemies
+                ..default()
+            },
+            Transform::from_translation(Vec3::new(position.x, position.y, 3.0))
+                .with_rotation(Quat::from_rotation_z(angle)),
         ));
 
         // Spawn health bar for boid
@@ -365,49 +515,121 @@ fn render_networked_entities(
                 Color::srgb(0.5, 0.3, 0.1),
                 Vec2::new(obstacle.width, obstacle.height),
             ), // Brown obstacles
-            Transform::from_translation(Vec3::new(position.x, position.y, 0.5)), // Slightly behind other entities
+            Transform::from_translation(Vec3::new(position.x, position.y, 2.5)), // Slightly behind other entities
         ));
     }
 
     // Add visual representation to networked projectiles
-    for (entity, position) in projectiles.iter() {
+    for (entity, position, velocity) in projectiles.iter() {
+        // Calculate rotation from velocity for projectiles
+        let angle = if let Some(vel) = velocity {
+            if vel.length_squared() > 0.1 {
+                vel.y.atan2(vel.x) - std::f32::consts::FRAC_PI_2 // Subtract 90 degrees to face forward
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
         commands.entity(entity).insert((
-            Sprite::from_color(Color::srgb(0.0, 1.0, 1.0), Vec2::new(6.0, 6.0)), // Cyan bullets, slightly larger
-            Transform::from_translation(Vec3::new(position.x, position.y, 2.0)), // In front of other entities
+            Sprite {
+                image: projectile_sprite.0.clone(),
+                custom_size: Some(Vec2::new(18.0, 18.0)), // Projectile size
+                ..default()
+            },
+            Transform::from_translation(Vec3::new(position.x, position.y, 4.0)) // In front of other entities
+                .with_rotation(Quat::from_rotation_z(angle)),
         ));
     }
 }
 
-/// Sync Position component to Transform for rendering
-fn sync_position_to_transform(mut query: Query<(&Position, &mut Transform), Changed<Position>>) {
-    for (position, mut transform) in query.iter_mut() {
-        transform.translation.x = position.x;
-        transform.translation.y = position.y;
-        // Rotation is handled by update_player_rotation_to_mouse
-    }
-}
-
-/// Update player rotation to face the mouse cursor
-fn update_player_rotation_to_mouse(
-    mut player_query: Query<(&Position, &mut Transform), With<Player>>,
-    windows: Query<&Window>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
+/// Sync Position and Rotation components to Transform for rendering
+fn sync_position_to_transform(
+    mut commands: Commands,
+    mut query: Query<
+        (
+            Entity,
+            &Position,
+            Option<&Rotation>,
+            Option<&Velocity>,
+            &mut Transform,
+            Option<&Player>,
+            Option<&mut SmoothTransform>,
+        ),
+        Or<(Changed<Position>, Changed<Rotation>, Changed<Velocity>)>,
+    >,
 ) {
-    if let (Ok(window), Ok((camera, camera_transform))) = (windows.single(), cameras.single()) {
-        if let Some(cursor_pos) = window.cursor_position() {
-            // Convert cursor position to world coordinates
-            if let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) {
-                // Update rotation for all players (typically just one)
-                for (position, mut transform) in player_query.iter_mut() {
-                    // Calculate direction from player to mouse
-                    let direction = (world_pos - position.0).normalize_or_zero();
-                    if direction.length() > 0.1 {
-                        // Calculate angle for square sprite (no offset needed)
-                        let angle = direction.y.atan2(direction.x);
-                        transform.rotation = Quat::from_rotation_z(angle);
+    for (entity, position, rotation, velocity, mut transform, player, smooth_transform) in
+        query.iter_mut()
+    {
+        // Check if this is a boid that needs smooth interpolation
+        let is_boid = player.is_none(); // Non-players are boids
+
+        if is_boid {
+            // Handle smooth interpolation for boids
+            if let Some(mut smooth) = smooth_transform {
+                // Update targets
+                smooth.previous_position = smooth.target_position;
+                smooth.target_position = position.0;
+
+                // Calculate target rotation
+                let target_rotation = if let Some(vel) = velocity {
+                    if vel.length_squared() > 0.1 {
+                        vel.y.atan2(vel.x) - std::f32::consts::FRAC_PI_2
+                    } else if let Some(rot) = rotation {
+                        rot.angle
+                    } else {
+                        smooth.target_rotation
                     }
-                }
+                } else if let Some(rot) = rotation {
+                    rot.angle
+                } else {
+                    smooth.target_rotation
+                };
+
+                smooth.previous_rotation = smooth.target_rotation;
+                smooth.target_rotation = target_rotation;
+            } else {
+                // First time seeing this boid - add SmoothTransform component
+                let target_rotation = if let Some(vel) = velocity {
+                    if vel.length_squared() > 0.1 {
+                        vel.y.atan2(vel.x) - std::f32::consts::FRAC_PI_2
+                    } else if let Some(rot) = rotation {
+                        rot.angle
+                    } else {
+                        0.0
+                    }
+                } else if let Some(rot) = rotation {
+                    rot.angle
+                } else {
+                    0.0
+                };
+
+                commands.entity(entity).insert(SmoothTransform {
+                    previous_position: position.0,
+                    target_position: position.0,
+                    previous_rotation: target_rotation,
+                    target_rotation,
+                    interpolation_speed: 8.0, // Slower for more smoothness
+                    velocity: Vec2::ZERO,
+                    angular_velocity: 0.0,
+                    smoothing_factor: 0.85, // Higher = more smoothing
+                });
             }
+        } else {
+            // Players get direct updates (no smoothing for player)
+            transform.translation.x = position.x;
+            transform.translation.y = position.y;
+
+            // Player: always use rotation component (aim direction)
+            let angle = if let Some(rot) = rotation {
+                rot.angle
+            } else {
+                transform.rotation.to_euler(EulerRot::ZYX).0 // Keep current rotation
+            };
+
+            transform.rotation = Quat::from_rotation_z(angle);
         }
     }
 }
@@ -465,11 +687,7 @@ fn send_player_input(
 
     let input = PlayerInput::new(movement, aim, fire);
 
-    // Removed debug logs
-
-    // Removed debug logs
-
-    // Send input to server as a message - no debug logs
+    // Send input to server as a message
     let _ = connection.send_message::<UnreliableChannel, PlayerInput>(&input);
 }
 
@@ -558,6 +776,79 @@ fn cleanup_health_bars(
             if health_bar.owner == removed_boid {
                 commands.entity(entity).despawn();
             }
+        }
+    }
+}
+
+/// Enhanced smooth interpolation system for boids with velocity-based smoothing
+fn smooth_interpolation_system(
+    mut query: Query<
+        (&mut Transform, &mut SmoothTransform),
+        (With<SmoothTransform>, Without<Player>),
+    >,
+    time: Res<Time>,
+) {
+    let delta_time = time.delta_secs();
+
+    for (mut transform, mut smooth) in query.iter_mut() {
+        let current_pos = Vec2::new(transform.translation.x, transform.translation.y);
+        let current_rotation = transform.rotation.to_euler(EulerRot::ZYX).0;
+
+        // Calculate distance to target for adaptive smoothing
+        let distance_to_target = (smooth.target_position - current_pos).length();
+
+        // Adaptive smoothing - less smoothing when far from target, more when close
+        let adaptive_factor = (distance_to_target / 100.0).clamp(0.2, 1.0);
+        let base_lerp_factor = smooth.interpolation_speed * delta_time * adaptive_factor;
+
+        // Velocity-based smoothing for position
+        let target_velocity = (smooth.target_position - current_pos) * smooth.interpolation_speed;
+        smooth.velocity = smooth.velocity.lerp(target_velocity, base_lerp_factor);
+
+        // Apply velocity with additional smoothing
+        let velocity_factor = smooth.smoothing_factor;
+        let new_pos = current_pos + smooth.velocity * delta_time * velocity_factor;
+
+        // Additional exponential smoothing towards target
+        let final_pos = new_pos.lerp(smooth.target_position, base_lerp_factor * 0.3);
+
+        transform.translation.x = final_pos.x;
+        transform.translation.y = final_pos.y;
+
+        // Enhanced rotation smoothing with angular velocity
+        let mut rotation_diff = smooth.target_rotation - current_rotation;
+
+        // Handle rotation wrap-around (shortest path between angles)
+        while rotation_diff > std::f32::consts::PI {
+            rotation_diff -= 2.0 * std::f32::consts::PI;
+        }
+        while rotation_diff < -std::f32::consts::PI {
+            rotation_diff += 2.0 * std::f32::consts::PI;
+        }
+
+        // Angular velocity smoothing
+        let target_angular_velocity = rotation_diff * smooth.interpolation_speed;
+        smooth.angular_velocity = smooth.angular_velocity * smooth.smoothing_factor
+            + target_angular_velocity * (1.0 - smooth.smoothing_factor);
+
+        // Apply angular velocity with damping
+        let new_rotation = current_rotation + smooth.angular_velocity * delta_time * 0.7;
+        transform.rotation = Quat::from_rotation_z(new_rotation);
+    }
+}
+
+/// Handle camera zoom with mouse wheel
+fn handle_camera_zoom(
+    mut scroll_evr: EventReader<bevy::input::mouse::MouseWheel>,
+    mut camera_query: Query<&mut Transform, With<Camera2d>>,
+) {
+    for ev in scroll_evr.read() {
+        if let Ok(mut transform) = camera_query.single_mut() {
+            // Zoom in/out with scroll wheel
+            let zoom_delta = ev.y * 0.1;
+            let current_scale = transform.scale.x;
+            let new_scale = (current_scale - zoom_delta).clamp(0.5, 5.0);
+            transform.scale = Vec3::splat(new_scale);
         }
     }
 }

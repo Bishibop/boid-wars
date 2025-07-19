@@ -61,7 +61,7 @@ bevy-client-release: ## Build optimized Bevy WASM client (release)
 dev: ## Run server and Bevy WASM client for development
 	@echo "🎮 Starting Bevy WASM development mode..."
 	@echo "📦 Building Bevy client if needed..."
-	@cd bevy-client && ./build-quick.sh > /dev/null 2>&1
+	@cd bevy-client && ./build-quick.sh
 	@echo "🚀 Starting server and Bevy client..."
 	@echo "📝 Server logs and client server logs will be interleaved. Press Ctrl+C to stop all."
 	@echo "🌐 Client will be available at http://localhost:8081"
