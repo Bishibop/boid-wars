@@ -133,6 +133,32 @@ See [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) for system design and [docs
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
+## Deployment
+
+### Local Docker
+```bash
+# Build and run locally
+docker build . -t boid-wars
+docker run -p 8080:8080 boid-wars
+
+# Or use docker-compose
+docker-compose up
+```
+
+### Fly.io Deployment
+```bash
+# Deploy to Fly.io (uses Dockerfile)
+fly deploy
+
+# Or use the deployment script
+./scripts/deploy.sh
+```
+
+The Docker build uses optimized settings to work within memory constraints:
+- `lto = "thin"` for reduced memory usage
+- `codegen-units = 16` for better parallelization
+- `opt-level = 2` for balanced optimization
+
 ## Troubleshooting
 
 Common issues and solutions are documented in [docs/troubleshooting.md](docs/troubleshooting.md).

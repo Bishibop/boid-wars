@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  boid-wars:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - BOID_WARS_BOID_SPEED=150.0
+      - BOID_WARS_DEFAULT_HEALTH=100.0
+      - BOID_WARS_GAME_HEIGHT=900.0
+      - BOID_WARS_GAME_WIDTH=1200.0
+      - BOID_WARS_PLAYER_SPEED=200.0
+      - BOID_WARS_PROTOCOL_ID=12345
+      - BOID_WARS_SERVER_BIND_ADDR=0.0.0.0:8081
+      - BOID_WARS_SPAWN_X=600.0
+      - BOID_WARS_SPAWN_Y=450.0
+      - RUST_LOG=info
+    volumes:
+      # Mount for faster development (optional)
+      - ./assets-worktree/assets:/app/static/assets:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
