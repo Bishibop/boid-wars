@@ -12,7 +12,8 @@ bevy = { version = "0.16", default-features = false, features = [
     "bevy_winit",
     "bevy_render", 
     "bevy_sprite",
-    "webgl2"
+    "webgl2",
+    "webp"
 ] }
 
 # Lightyear networking (0.20 for compatibility with server)
@@ -23,7 +24,7 @@ boid-wars-shared = { path = "../shared" }
 
 # WASM bindings
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["Window", "Location"] }
+web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "HtmlCanvasElement", "Window", "Document", "Location"] }
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
 

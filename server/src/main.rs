@@ -18,6 +18,7 @@ pub mod debug_ui;
 pub mod despawn_utils;
 pub mod flocking;
 pub mod groups;
+pub mod health_sync;
 pub mod physics;
 pub mod pool;
 pub mod position_sync;
@@ -25,6 +26,7 @@ pub mod spatial_grid;
 use bevy_rapier2d::prelude::{Collider, ExternalForce, ExternalImpulse, RigidBody};
 use config::PhysicsConfig;
 use debug_ui::DebugUIPlugin;
+use health_sync::HealthSyncPlugin;
 use physics::{GameCollisionGroups, PhysicsPlugin, Ship, WeaponStats};
 use position_sync::{PositionSyncPlugin, SyncPosition};
 use spatial_grid::SpatialGridPlugin;
@@ -93,6 +95,7 @@ fn main() {
         .add_plugins(SpatialGridPlugin) // Must be before systems that use it
         .add_plugins(PhysicsPlugin::default())
         .add_plugins(PositionSyncPlugin)
+        .add_plugins(HealthSyncPlugin) // Event-based health synchronization
         .add_plugins(flocking::FlockingPlugin) // Add flocking behavior
         .add_plugins(groups::BoidGroupPlugin)
         .add_plugins(BoidWarsServerPlugin);

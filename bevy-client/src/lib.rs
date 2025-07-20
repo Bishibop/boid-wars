@@ -8,6 +8,9 @@ use std::net::SocketAddr;
 use tracing::{info, warn};
 use wasm_bindgen::prelude::*;
 
+mod health_events;
+use health_events::HealthEventsPlugin;
+
 // Constants
 const PLAYER_SPRITE_SIZE: f32 = 64.0; // Actual sprite size after optimization
 const BOID_SPRITE_SIZE: f32 = 32.0; // Actual boid sprite size
@@ -57,6 +60,38 @@ struct SmoothTransform {
 struct ClientProjectileTracker {
     // Map network ID to local entity
     projectiles: std::collections::HashMap<u32, Entity>,
+}
+
+// Projectile sprite pool for performance
+#[derive(Resource)]
+struct ProjectileSpritePool {
+    available: Vec<Entity>,
+    active: std::collections::HashMap<u32, Entity>, // network_id -> entity
+    sprite_texture: Handle<Image>,
+    max_size: usize,
+}
+
+impl ProjectileSpritePool {
+    fn new(max_size: usize) -> Self {
+        Self {
+            available: Vec::with_capacity(max_size),
+            active: std::collections::HashMap::with_capacity(max_size),
+            sprite_texture: Handle::default(),
+            max_size,
+        }
+    }
+    
+    fn get(&mut self) -> Option<Entity> {
+        self.available.pop()
+    }
+    
+    fn return_entity(&mut self, entity: Entity) {
+        self.available.push(entity);
+    }
+    
+    fn is_full(&self) -> bool {
+        self.active.len() + self.available.len() >= self.max_size
+    }
 }
 
 // Component for client-side projectile simulation
@@ -110,6 +145,9 @@ pub fn run() {
 
     // Add shared protocol
     app.add_plugins(ProtocolPlugin);
+    
+    // Add health events handling
+    app.add_plugins(HealthEventsPlugin);
 
     // Initialize performance timer
     let client_settings = &*CLIENT_CONFIG;
@@ -124,9 +162,13 @@ pub fn run() {
     // Initialize client ID storage
     app.init_resource::<MyClientId>();
     app.init_resource::<ClientProjectileTracker>();
+    
+    // Initialize projectile sprite pool
+    app.insert_resource(ProjectileSpritePool::new(500)); // Match server pool size
 
-    // Add systems
+    // Add systems with proper ordering
     app.add_systems(Startup, (setup_scene, connect_to_server, setup_ui));
+    app.add_systems(Startup, setup_projectile_pool.after(setup_scene));
     app.add_systems(
         Update,
         (
@@ -272,7 +314,7 @@ fn supports_webp() -> bool {
                     canvas.set_width(1);
                     canvas.set_height(1);
                     if let Some(ctx) = canvas.get_context("2d").ok().flatten() {
-                        if let Ok(ctx) = ctx.dyn_into::<web_sys::CanvasRenderingContext2d>() {
+                        if let Ok(_ctx) = ctx.dyn_into::<web_sys::CanvasRenderingContext2d>() {
                             // Try to create a WebP data URL
                             return canvas.to_data_url_with_type("image/webp").is_ok();
                         }
@@ -312,65 +354,20 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     let projectile_texture = load_image_with_fallback(&asset_server, "sprites/laser1_small");
     commands.insert_resource(ProjectileSprite(projectile_texture));
 
-    // Load background textures - using the derelict ship copy images
-    let background1 = load_image_with_fallback(&asset_server, "backgrounds/derelict_ship_main");
-    let background2 = load_image_with_fallback(&asset_server, "backgrounds/derelict_ship_2");
-    let background3 = load_image_with_fallback(&asset_server, "backgrounds/derelict_ship_3");
-
     // Spawn a 2D camera centered on the game area
     let game_config = &*GAME_CONFIG;
-
-    // Spawn the three background derelict ships with offsets and random rotations
     let center_x = game_config.game_width * 0.5;
     let center_y = game_config.game_height * 0.5;
-    let offset_distance = 1500.0;
 
-    // First ship - top-left direction
+    // Load the single background
+    let background_texture = load_image_with_fallback(&asset_server, "backgrounds/derelict_ship_main");
     commands.spawn((
         Sprite {
-            image: background1,
+            image: background_texture,
             color: Color::srgba(0.25, 0.25, 0.25, 1.0), // Dark overlay
             ..default()
         },
-        Transform::from_xyz(
-            center_x - offset_distance * 0.7,
-            center_y + offset_distance * 0.7,
-            1.0, // Background layer
-        )
-        .with_rotation(Quat::from_rotation_z(15.0_f32.to_radians())),
-        Background,
-    ));
-
-    // Second ship - bottom direction
-    commands.spawn((
-        Sprite {
-            image: background2,
-            color: Color::srgba(0.25, 0.25, 0.25, 1.0), // Dark overlay
-            ..default()
-        },
-        Transform::from_xyz(
-            center_x,
-            center_y - offset_distance,
-            1.0, // Background layer
-        )
-        .with_rotation(Quat::from_rotation_z(-30.0_f32.to_radians())),
-        Background,
-    ));
-
-    // Third ship - right direction
-    commands.spawn((
-        Sprite {
-            image: background3,
-            color: Color::srgba(0.25, 0.25, 0.25, 1.0), // Dark overlay
-            ..default()
-        },
-        Transform::from_xyz(
-            center_x + offset_distance,
-            center_y + offset_distance * 0.2,
-            1.0, // Background layer
-        )
-        .with_rotation(Quat::from_rotation_z(45.0_f32.to_radians())),
-        Background,
+        Transform::from_translation(Vec3::new(center_x, center_y, -10.0)), // Centered behind everything
     ));
 
     commands.spawn((
@@ -431,6 +428,41 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 }
 
+/// Setup projectile pool with pre-allocated entities
+fn setup_projectile_pool(
+    mut commands: Commands,
+    mut pool: ResMut<ProjectileSpritePool>,
+    projectile_sprite: Res<ProjectileSprite>,
+) {
+    info!("Pre-allocating projectile pool with 100 entities...");
+    
+    // Store the sprite texture in the pool
+    pool.sprite_texture = projectile_sprite.0.clone();
+    
+    // Pre-allocate 100 projectile entities
+    for _ in 0..100 {
+        let entity = commands.spawn((
+            ClientProjectile {
+                network_id: 0,
+                velocity: Vec2::ZERO,
+                owner_id: 0,
+                is_boid_projectile: false,
+            },
+            Sprite {
+                image: projectile_sprite.0.clone(),
+                custom_size: Some(Vec2::splat(PROJECTILE_SPRITE_SIZE)),
+                ..default()
+            },
+            Transform::from_translation(Vec3::new(-1000.0, -1000.0, 4.0)), // Off-screen
+            Visibility::Hidden, // Hidden by default
+        )).id();
+        
+        pool.available.push(entity);
+    }
+    
+    info!("Projectile pool initialized with {} entities", pool.available.len());
+}
+
 /// Performance monitoring timer resource
 #[derive(Resource)]
 struct PerformanceTimer(Timer);
@@ -482,9 +514,6 @@ struct CollisionOutline {
     is_player: bool, // true for player, false for boid
 }
 
-/// Marker component for background entities
-#[derive(Component)]
-struct Background;
 
 /// Simple performance monitoring system
 fn performance_monitor(
@@ -1203,50 +1232,84 @@ fn handle_projectile_spawn_events(
     mut commands: Commands,
     mut message_events: EventReader<ReceiveMessage<ProjectileSpawnEvent>>,
     mut tracker: ResMut<ClientProjectileTracker>,
-    projectile_sprite: Res<ProjectileSprite>,
+    mut pool: ResMut<ProjectileSpritePool>,
+    mut query: Query<(&mut Transform, &mut ClientProjectile, &mut Visibility)>,
 ) {
     // Receive all projectile spawn events
     for message_event in message_events.read() {
         let event = &message_event.message;
-        info!("Received projectile spawn event: {:?}", event);
         
-        // Spawn the projectile entity locally
-        let projectile_entity = commands.spawn((
-            ClientProjectile {
-                network_id: event.id,
-                velocity: event.velocity,
-                owner_id: event.owner_id,
-                is_boid_projectile: event.is_boid_projectile,
-            },
-            Sprite {
-                image: projectile_sprite.0.clone(),
-                custom_size: Some(Vec2::splat(PROJECTILE_SPRITE_SIZE)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(event.position.x, event.position.y, 4.0)),
-        )).id();
+        // Try to get an entity from the pool
+        let entity = if let Some(pooled_entity) = pool.get() {
+            pooled_entity
+        } else if !pool.is_full() {
+            // Create new entity if pool not at max capacity
+            commands.spawn((
+                ClientProjectile {
+                    network_id: 0,
+                    velocity: Vec2::ZERO,
+                    owner_id: 0,
+                    is_boid_projectile: false,
+                },
+                Sprite {
+                    image: pool.sprite_texture.clone(),
+                    custom_size: Some(Vec2::splat(PROJECTILE_SPRITE_SIZE)),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(-1000.0, -1000.0, 4.0)),
+                Visibility::Hidden,
+            )).id()
+        } else {
+            warn!("Projectile pool exhausted!");
+            continue;
+        };
         
-        // Track the projectile
-        tracker.projectiles.insert(event.id, projectile_entity);
+        // Update the entity with new projectile data
+        if let Ok((mut transform, mut projectile, mut visibility)) = query.get_mut(entity) {
+            // Update projectile data
+            projectile.network_id = event.id;
+            projectile.velocity = event.velocity;
+            projectile.owner_id = event.owner_id;
+            projectile.is_boid_projectile = event.is_boid_projectile;
+            
+            // Update position and make visible
+            transform.translation.x = event.position.x;
+            transform.translation.y = event.position.y;
+            *visibility = Visibility::Visible;
+            
+            // Track the projectile
+            pool.active.insert(event.id, entity);
+            tracker.projectiles.insert(event.id, entity);
+        }
     }
 }
 
 /// Handle projectile despawn events from server
 fn handle_projectile_despawn_events(
-    mut commands: Commands,
     mut message_events: EventReader<ReceiveMessage<ProjectileDespawnEvent>>,
     mut tracker: ResMut<ClientProjectileTracker>,
+    mut pool: ResMut<ProjectileSpritePool>,
+    mut query: Query<(&mut Transform, &mut Visibility), With<ClientProjectile>>,
 ) {
     // Receive all projectile despawn events
     for message_event in message_events.read() {
         let event = &message_event.message;
-        info!("Received projectile despawn event: {:?}", event);
         
-        // Find and despawn the local projectile entity
+        // Find the local projectile entity
         if let Some(entity) = tracker.projectiles.remove(&event.id) {
-            commands.entity(entity).despawn();
-        } else {
-            warn!("Received despawn event for unknown projectile ID: {}", event.id);
+            // Remove from pool's active tracking
+            pool.active.remove(&event.id);
+            
+            // Return entity to pool instead of despawning
+            if let Ok((mut transform, mut visibility)) = query.get_mut(entity) {
+                // Hide the entity and move it off-screen
+                *visibility = Visibility::Hidden;
+                transform.translation.x = -1000.0;
+                transform.translation.y = -1000.0;
+                
+                // Return to available pool
+                pool.return_entity(entity);
+            }
         }
     }
 }

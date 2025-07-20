@@ -354,6 +354,21 @@ impl MapEntities for ProjectileDespawnEvent {
     fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
 }
 
+/// Event sent when entity health changes (for efficient health updates)
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct HealthChangeEvent {
+    /// Network entity ID
+    pub entity_id: u32,
+    /// New health value
+    pub new_health: f32,
+    /// Maximum health value
+    pub max_health: f32,
+}
+
+impl MapEntities for HealthChangeEvent {
+    fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
+}
+
 // Bundles
 
 #[derive(Bundle)]
@@ -419,13 +434,14 @@ impl Plugin for ProtocolPlugin {
         app.register_type::<PlayerInput>();
         app.register_type::<ProjectileSpawnEvent>();
         app.register_type::<ProjectileDespawnEvent>();
+        app.register_type::<HealthChangeEvent>();
 
         // Register components for replication using correct Lightyear 0.20 API
         // Server-authoritative components (unidirectional to save bandwidth)
         app.register_component::<Position>(ChannelDirection::ServerToClient);
         app.register_component::<Rotation>(ChannelDirection::ServerToClient);
         app.register_component::<Velocity>(ChannelDirection::ServerToClient);
-        app.register_component::<Health>(ChannelDirection::ServerToClient);
+        // Health is sent via HealthChangeEvent instead of continuous replication
         app.register_component::<Player>(ChannelDirection::ServerToClient);
         app.register_component::<PlayerNumber>(ChannelDirection::ServerToClient);
         app.register_component::<Boid>(ChannelDirection::ServerToClient);
@@ -441,6 +457,7 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<PlayerInput>(ChannelDirection::ClientToServer);
         app.register_message::<ProjectileSpawnEvent>(ChannelDirection::ServerToClient);
         app.register_message::<ProjectileDespawnEvent>(ChannelDirection::ServerToClient);
+        app.register_message::<HealthChangeEvent>(ChannelDirection::ServerToClient);
 
         // Register channels using correct Lightyear 0.20 API
         app.add_channel::<UnreliableChannel>(ChannelSettings {
