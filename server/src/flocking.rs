@@ -35,6 +35,10 @@ pub struct FlockingConfig {
     pub player_avoidance_radius: f32,
     pub player_avoidance_weight: f32,
 
+    // Inter-group separation
+    pub inter_group_separation_radius: f32,
+    pub inter_group_separation_weight: f32,
+
     // Avoidance thresholds and constants
     pub obstacle_danger_zone: f32,
     pub collision_threshold: f32,
@@ -74,6 +78,10 @@ impl Default for FlockingConfig {
             player_avoidance_radius: 120.0, // Increased from 100.0
             player_avoidance_weight: 2.5,   // Reduced from 3.0 for better flow
 
+            // Inter-group separation
+            inter_group_separation_radius: 150.0, // Keep groups well separated
+            inter_group_separation_weight: 2.0,   // Strong enough to prevent merging
+
             // Avoidance thresholds and constants
             obstacle_danger_zone: 40.0,
             collision_threshold: 30.0,
@@ -107,26 +115,36 @@ pub fn update_flocking(
         .max(config.alignment_radius)
         .max(config.cohesion_radius)
         .max(config.obstacle_avoidance_radius)
-        .max(config.player_avoidance_radius);
+        .max(config.player_avoidance_radius)
+        .max(config.inter_group_separation_radius);
 
     // Collect all boid data first to avoid borrow checker issues
-    let boid_data: Vec<(Entity, Vec2, Vec2)> = boids
+    // Now includes group_id for inter-group separation
+    let boid_data: Vec<(Entity, Vec2, Vec2, Option<u32>)> = boids
         .iter()
-        .map(|(entity, pos, vel, _)| (entity, pos.0, vel.0))
+        .map(|(entity, pos, vel, group_member)| {
+            let group_id = group_member.as_ref().map(|m| m.group_id);
+            (entity, pos.0, vel.0, group_id)
+        })
         .collect();
 
     // Create a HashSet for O(1) boid lookups
     let boid_entities: std::collections::HashSet<Entity> =
-        boid_data.iter().map(|(e, _, _)| *e).collect();
+        boid_data.iter().map(|(e, _, _, _)| *e).collect();
 
     // Update each boid
     for (entity, pos, mut vel, group_member) in boids.iter_mut() {
         let mut separation = Vec2::ZERO;
         let mut alignment = Vec2::ZERO;
         let mut cohesion = Vec2::ZERO;
+        let mut inter_group_separation = Vec2::ZERO;
         let mut sep_count = 0;
         let mut align_count = 0;
         let mut cohesion_count = 0;
+        let mut inter_group_count = 0;
+
+        // Get this boid's group ID
+        let my_group_id = group_member.as_ref().map(|m| m.group_id);
 
         // Get nearby entities from spatial grid
         let nearby = spatial_grid.get_nearby_entities(pos.0, search_radius);
@@ -138,29 +156,44 @@ pub fn update_flocking(
             }
 
             // Find the other boid's data in our collected data
-            if let Some((_, other_pos, other_vel)) =
-                boid_data.iter().find(|(e, _, _)| *e == other_entity)
+            if let Some((_, other_pos, other_vel, other_group_id)) =
+                boid_data.iter().find(|(e, _, _, _)| *e == other_entity)
             {
                 let diff = pos.0 - *other_pos;
                 let distance = diff.length();
 
-                // Separation: avoid crowding
+                // Check if boids are in the same group
+                let same_group = my_group_id.is_some()
+                    && other_group_id.is_some()
+                    && my_group_id == *other_group_id;
+
+                // Separation: avoid crowding (applies to all nearby boids)
                 if distance > 0.0 && distance < config.separation_radius {
                     let force = diff.normalize() / distance; // Inverse square law
                     separation += force;
                     sep_count += 1;
                 }
 
-                // Alignment: match velocity
-                if distance < config.alignment_radius {
-                    alignment += *other_vel;
-                    align_count += 1;
-                }
+                // Only apply alignment and cohesion to same-group boids
+                if same_group {
+                    // Alignment: match velocity
+                    if distance < config.alignment_radius {
+                        alignment += *other_vel;
+                        align_count += 1;
+                    }
 
-                // Cohesion: move toward center
-                if distance < config.cohesion_radius {
-                    cohesion += *other_pos;
-                    cohesion_count += 1;
+                    // Cohesion: move toward center
+                    if distance < config.cohesion_radius {
+                        cohesion += *other_pos;
+                        cohesion_count += 1;
+                    }
+                } else if my_group_id.is_some() && other_group_id.is_some() {
+                    // Inter-group separation: push away from other groups
+                    if distance > 0.0 && distance < config.inter_group_separation_radius {
+                        let force = diff.normalize() / (distance * 0.5); // Stronger repulsion
+                        inter_group_separation += force;
+                        inter_group_count += 1;
+                    }
                 }
             }
         }
@@ -188,6 +221,16 @@ pub fn update_flocking(
             let desired = (center - pos.0).normalize_or_zero() * config.max_speed;
             cohesion = (desired - vel.0).clamp_length_max(config.max_force);
             acceleration += cohesion * config.cohesion_weight;
+        }
+
+        // Apply inter-group separation
+        if inter_group_count > 0 {
+            inter_group_separation = (inter_group_separation / inter_group_count as f32)
+                .normalize_or_zero()
+                * config.max_speed;
+            inter_group_separation =
+                (inter_group_separation - vel.0).clamp_length_max(config.max_force);
+            acceleration += inter_group_separation * config.inter_group_separation_weight;
         }
 
         // Early exit optimization: if only boids nearby, skip avoidance calculations

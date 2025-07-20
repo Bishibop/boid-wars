@@ -47,6 +47,12 @@ pub struct Boid {
     pub id: u32,
 }
 
+/// Boid group sprite identifier (for client rendering)
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct BoidSpriteGroup {
+    pub group_id: u32,
+}
+
 /// Static combat capabilities for boids (replicated once)
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BoidCombatStats {
@@ -447,6 +453,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Player>(ChannelDirection::ServerToClient);
         app.register_component::<PlayerNumber>(ChannelDirection::ServerToClient);
         app.register_component::<Boid>(ChannelDirection::ServerToClient);
+        app.register_component::<BoidSpriteGroup>(ChannelDirection::ServerToClient);
         app.register_component::<BoidCombatStats>(ChannelDirection::ServerToClient);
         // BoidCombatState is server-only and not registered for replication
         app.register_component::<Obstacle>(ChannelDirection::ServerToClient);

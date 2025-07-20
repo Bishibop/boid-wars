@@ -214,6 +214,7 @@ pub fn spawn_boid_group(
                 formation_slot: None, // Disable formation slots
                 role_in_group: role,
             },
+            BoidSpriteGroup { group_id }, // Add sprite group for client rendering
             Replicate {
                 group: ReplicationGroup::new_id(group_id.into()),
                 ..default()

@@ -340,6 +340,14 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     let enemy_texture = load_image_with_fallback(&asset_server, "sprites/Ship_04");
     commands.insert_resource(EnemySprite(enemy_texture));
 
+    // Load enemy group 2 sprite texture - using Ship 05
+    let enemy_texture2 = load_image_with_fallback(&asset_server, "sprites/Ship_05");
+    commands.insert_resource(EnemySprite2(enemy_texture2));
+
+    // Load enemy group 3 sprite texture - using Ship 06
+    let enemy_texture3 = load_image_with_fallback(&asset_server, "sprites/Ship_06");
+    commands.insert_resource(EnemySprite3(enemy_texture3));
+
     // Load projectile sprite - using craftpix laser
     let projectile_texture = load_image_with_fallback(&asset_server, "sprites/laser1_small");
     commands.insert_resource(ProjectileSprite(projectile_texture));
@@ -447,6 +455,14 @@ struct Player2Sprite(Handle<Image>);
 #[derive(Resource)]
 struct EnemySprite(Handle<Image>);
 
+/// Resource to hold enemy group 2 sprite texture (Ship_05)
+#[derive(Resource)]
+struct EnemySprite2(Handle<Image>);
+
+/// Resource to hold enemy group 3 sprite texture (Ship_06)
+#[derive(Resource)]
+struct EnemySprite3(Handle<Image>);
+
 /// Resource to hold projectile sprite texture
 #[derive(Resource)]
 struct ProjectileSprite(Handle<Image>);
@@ -548,6 +564,8 @@ fn render_networked_entities(
     player_sprite: Res<PlayerSprite>,
     player2_sprite: Res<Player2Sprite>,
     enemy_sprite: Res<EnemySprite>,
+    enemy_sprite2: Res<EnemySprite2>,
+    enemy_sprite3: Res<EnemySprite3>,
     projectile_sprite: Res<ProjectileSprite>,
     asset_server: Res<AssetServer>,
     players: Query<
@@ -561,7 +579,16 @@ fn render_networked_entities(
         ),
         UnrenderedPlayer,
     >,
-    boids: Query<(Entity, &Position, Option<&Rotation>, Option<&Velocity>), UnrenderedBoid>,
+    boids: Query<
+        (
+            Entity,
+            &Position,
+            Option<&BoidSpriteGroup>,
+            Option<&Rotation>,
+            Option<&Velocity>,
+        ),
+        UnrenderedBoid,
+    >,
     obstacles: Query<(Entity, &Position, &Obstacle), UnrenderedObstacle>,
     projectiles: Query<(Entity, &Position, Option<&Velocity>), UnrenderedProjectile>,
 ) {
@@ -569,11 +596,13 @@ fn render_networked_entities(
     let player_loaded = asset_server.is_loaded(&player_sprite.0);
     let player2_loaded = asset_server.is_loaded(&player2_sprite.0);
     let enemy_loaded = asset_server.is_loaded(&enemy_sprite.0);
+    let enemy2_loaded = asset_server.is_loaded(&enemy_sprite2.0);
+    let enemy3_loaded = asset_server.is_loaded(&enemy_sprite3.0);
 
-    if !player_loaded || !player2_loaded || !enemy_loaded {
+    if !player_loaded || !player2_loaded || !enemy_loaded || !enemy2_loaded || !enemy3_loaded {
         info!(
-            "Waiting for sprites to load... Player: {}, Player2: {}, Enemy: {}",
-            player_loaded, player2_loaded, enemy_loaded
+            "Waiting for sprites to load... Player: {}, Player2: {}, Enemy: {}, Enemy2: {}, Enemy3: {}",
+            player_loaded, player2_loaded, enemy_loaded, enemy2_loaded, enemy3_loaded
         );
         return;
     }
@@ -633,7 +662,7 @@ fn render_networked_entities(
     }
 
     // Add visual representation to networked boids (includes AI players)
-    for (entity, position, rotation, velocity) in boids.iter() {
+    for (entity, position, sprite_group, rotation, velocity) in boids.iter() {
         // Use velocity direction if available and significant, otherwise use rotation
         let angle = if let Some(vel) = velocity {
             if vel.length_squared() > 0.1 {
@@ -649,9 +678,20 @@ fn render_networked_entities(
             0.0
         };
 
+        // Select sprite based on group_id
+        let sprite_handle = if let Some(group) = sprite_group {
+            match group.group_id {
+                1 => enemy_sprite2.0.clone(), // Group 1 uses Ship_05
+                2 => enemy_sprite3.0.clone(), // Group 2 uses Ship_06
+                _ => enemy_sprite.0.clone(),  // Default/Group 0 uses Ship_04
+            }
+        } else {
+            enemy_sprite.0.clone() // Default fallback if no group info
+        };
+
         commands.entity(entity).insert((
             Sprite {
-                image: enemy_sprite.0.clone(),
+                image: sprite_handle,
                 custom_size: Some(Vec2::splat(BOID_SPRITE_SIZE)),
                 ..default()
             },
