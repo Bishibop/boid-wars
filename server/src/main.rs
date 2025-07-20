@@ -409,14 +409,15 @@ fn handle_connections(
         let client_id = event.client_id;
 
         // Determine which player slot to assign
-        let (player_number, spawn_x) = if player_slots.player1.is_none() {
-            // Assign as Player1
-            (PlayerNumber::Player1, game_config.spawn_x)
+        let (player_number, spawn_x, spawn_y) = if player_slots.player1.is_none() {
+            // Assign as Player1 - top left corner
+            (PlayerNumber::Player1, 100.0, 100.0)
         } else if player_slots.player2.is_none() {
-            // Assign as Player2 with different spawn position
+            // Assign as Player2 - bottom right corner
             (
                 PlayerNumber::Player2,
-                game_config.spawn_x + PLAYER_2_SPAWN_OFFSET,
+                game_config.game_width - 100.0,
+                game_config.game_height - 100.0,
             )
         } else {
             // Server is full - reject connection
@@ -435,7 +436,7 @@ fn handle_connections(
                     client_id.to_bits(),
                     format!("Player {}", client_id.to_bits()),
                     spawn_x,
-                    game_config.spawn_y,
+                    spawn_y,
                     player_number.clone(),
                 ),
                 // Networking
@@ -482,7 +483,7 @@ fn handle_connections(
             physics::Velocity::zero(),
             ExternalForce::default(),
             ExternalImpulse::default(),
-            Transform::from_xyz(game_config.spawn_x, game_config.spawn_y, 0.0), // Back to original spawn
+            Transform::from_xyz(spawn_x, spawn_y, 0.0), // Use player-specific spawn position
             GlobalTransform::default(),
             bevy_rapier2d::dynamics::GravityScale(0.0), // Disable gravity for top-down space game
             bevy_rapier2d::dynamics::Sleeping::disabled(),

@@ -708,7 +708,7 @@ fn render_networked_entities(
         let health_bar_bg = commands
             .spawn((
                 Sprite::from_color(Color::srgb(0.2, 0.2, 0.2), Vec2::new(20.0, 3.0)),
-                Transform::from_translation(Vec3::new(position.x, position.y + 15.0, 11.5)),
+                Transform::from_translation(Vec3::new(position.x, position.y + 19.0, 11.5)),
                 BoidHealthBar { owner: entity },
             ))
             .id();
@@ -716,7 +716,7 @@ fn render_networked_entities(
         let health_bar_fill = commands
             .spawn((
                 Sprite::from_color(Color::srgb(0.8, 0.2, 0.2), Vec2::new(20.0, 3.0)),
-                Transform::from_translation(Vec3::new(position.x, position.y + 15.0, 11.6)),
+                Transform::from_translation(Vec3::new(position.x, position.y + 19.0, 11.6)),
                 BoidHealthBar { owner: entity },
                 HealthBarFill,
             ))
@@ -1081,13 +1081,13 @@ fn update_boid_health_bar_positions(
         // Update background position
         if let Ok(mut bar_transform) = health_bar_query.get_mut(health_link.background) {
             bar_transform.translation.x = boid_transform.translation.x;
-            bar_transform.translation.y = boid_transform.translation.y + 18.0;
+            bar_transform.translation.y = boid_transform.translation.y + 19.0;
         }
 
         // Update fill position
         if let Ok(mut bar_transform) = health_bar_query.get_mut(health_link.fill) {
             bar_transform.translation.x = boid_transform.translation.x;
-            bar_transform.translation.y = boid_transform.translation.y + 18.0;
+            bar_transform.translation.y = boid_transform.translation.y + 19.0;
         }
     }
 }
