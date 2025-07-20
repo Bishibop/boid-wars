@@ -249,19 +249,16 @@ fn spawn_boid_flock(commands: &mut Commands, physics_config: &PhysicsConfig) {
     );
     */
 
-    // New Patrol group for 2v2 gameplay
-    let patrol_territory = TerritoryData {
-        center: Vec2::new(450.0, 400.0), // Arena center for balanced coverage
-        radius: 350.0,                   // Large radius for arena-wide patrol
-        zone: ArenaZone::Outer,
+    // First group: Assault group in center
+    let assault_territory = TerritoryData {
+        center: Vec2::new(800.0, 600.0), // Arena center
+        radius: 400.0,
+        zone: ArenaZone::Inner,
         patrol_points: vec![
-            // Strategic waypoints around arena perimeter and center
-            Vec2::new(200.0, 200.0), // Top-left area
-            Vec2::new(700.0, 200.0), // Top-right area
-            Vec2::new(800.0, 400.0), // Right-center
-            Vec2::new(700.0, 600.0), // Bottom-right
-            Vec2::new(200.0, 600.0), // Bottom-left
-            Vec2::new(100.0, 400.0), // Left-center
+            Vec2::new(600.0, 400.0),
+            Vec2::new(1000.0, 400.0),
+            Vec2::new(1000.0, 800.0),
+            Vec2::new(600.0, 800.0),
         ],
         neighboring_territories: vec![],
     };
@@ -272,8 +269,64 @@ fn spawn_boid_flock(commands: &mut Commands, physics_config: &PhysicsConfig) {
             aggression_multiplier: 1.0,
             preferred_range: 150.0,
         },
-        15, // Balanced size for 2v2 gameplay
-        patrol_territory,
+        15,
+        assault_territory,
+        &mut group_id_counter,
+        &mut boid_id_counter,
+        physics_config,
+    );
+    spawned_groups += 1;
+
+    // Second group: Defensive group in upper area
+    let defensive_territory = TerritoryData {
+        center: Vec2::new(800.0, 300.0), // Upper center
+        radius: 300.0,
+        zone: ArenaZone::Middle,
+        patrol_points: vec![
+            Vec2::new(500.0, 200.0),
+            Vec2::new(1100.0, 200.0),
+            Vec2::new(1100.0, 400.0),
+            Vec2::new(500.0, 400.0),
+        ],
+        neighboring_territories: vec![],
+    };
+
+    groups::spawn_boid_group(
+        commands,
+        GroupArchetype::Defensive {
+            protection_radius: 400.0,
+            retreat_threshold: 0.4,
+        },
+        20,
+        defensive_territory,
+        &mut group_id_counter,
+        &mut boid_id_counter,
+        physics_config,
+    );
+    spawned_groups += 1;
+
+    // Third group: Recon group patrolling outer edges
+    let recon_territory = TerritoryData {
+        center: Vec2::new(800.0, 900.0), // Lower area
+        radius: 500.0,
+        zone: ArenaZone::Outer,
+        patrol_points: vec![
+            Vec2::new(200.0, 700.0),
+            Vec2::new(1400.0, 700.0),
+            Vec2::new(1400.0, 1100.0),
+            Vec2::new(200.0, 1100.0),
+        ],
+        neighboring_territories: vec![],
+    };
+
+    groups::spawn_boid_group(
+        commands,
+        GroupArchetype::Recon {
+            detection_range: 400.0,
+            flee_speed_bonus: 1.3,
+        },
+        12,
+        recon_territory,
         &mut group_id_counter,
         &mut boid_id_counter,
         physics_config,
