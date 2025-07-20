@@ -360,14 +360,14 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     let center_y = game_config.game_height * 0.5;
 
     // Load the single background
-    let background_texture = load_image_with_fallback(&asset_server, "backgrounds/derelict_ship_main");
+    let background_texture = load_image_with_fallback(&asset_server, "backgrounds/angled_bg");
     commands.spawn((
         Sprite {
             image: background_texture,
             color: Color::srgba(0.25, 0.25, 0.25, 1.0), // Dark overlay
             ..default()
         },
-        Transform::from_translation(Vec3::new(center_x, center_y, -10.0)), // Centered behind everything
+        Transform::from_translation(Vec3::new(center_x, center_y, 1.0)), // z-index 1 as requested
     ));
 
     commands.spawn((
