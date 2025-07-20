@@ -9,7 +9,9 @@ use tracing::{info, warn};
 use wasm_bindgen::prelude::*;
 
 // Constants
-const PLAYER_SPRITE_SIZE: f32 = 62.4; // 30% bigger than base 48x48
+const PLAYER_SPRITE_SIZE: f32 = 64.0; // Actual sprite size after optimization
+const BOID_SPRITE_SIZE: f32 = 32.0; // Actual boid sprite size
+const PROJECTILE_SPRITE_SIZE: f32 = 18.0; // Actual projectile sprite size
 
 // Client-side components
 #[derive(Component)]
@@ -91,7 +93,7 @@ pub fn run() {
                 ..default()
             })
             .set(bevy::render::RenderPlugin {
-                synchronous_pipeline_compilation: true,
+                synchronous_pipeline_compilation: false,
                 ..default()
             })
             .set(AssetPlugin {
@@ -260,30 +262,60 @@ fn setup_ui(mut commands: Commands) {
         });
 }
 
+/// Check if WebP is supported by the browser
+fn supports_webp() -> bool {
+    // Use web-sys to check WebP support
+    if let Some(window) = web_sys::window() {
+        if let Some(document) = window.document() {
+            if let Ok(canvas) = document.create_element("canvas") {
+                if let Ok(canvas) = canvas.dyn_into::<web_sys::HtmlCanvasElement>() {
+                    canvas.set_width(1);
+                    canvas.set_height(1);
+                    if let Some(ctx) = canvas.get_context("2d").ok().flatten() {
+                        if let Ok(ctx) = ctx.dyn_into::<web_sys::CanvasRenderingContext2d>() {
+                            // Try to create a WebP data URL
+                            return canvas.to_data_url_with_type("image/webp").is_ok();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Load image with WebP fallback to PNG
+fn load_image_with_fallback(asset_server: &AssetServer, path: &str) -> Handle<Image> {
+    let extension = if supports_webp() { "webp" } else { "png" };
+    let full_path = format!("{}.{}", path.trim_end_matches(".png").trim_end_matches(".webp"), extension);
+    asset_server.load(full_path)
+}
+
 /// Scene setup
 fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     info!("Loading game sprites...");
+    info!("WebP support: {}", supports_webp());
 
     // Load player sprite texture - using Ship_01 Level 1
-    let player_texture = asset_server.load("sprites/Ship_LVL_1.png");
+    let player_texture = load_image_with_fallback(&asset_server, "sprites/Ship_LVL_1");
     commands.insert_resource(PlayerSprite(player_texture));
 
     // Load player 2 sprite texture
-    let player2_texture = asset_server.load("sprites/Ship_player_2.png");
+    let player2_texture = load_image_with_fallback(&asset_server, "sprites/Ship_player_2");
     commands.insert_resource(Player2Sprite(player2_texture));
 
     // Load enemy sprite texture - using Pirate Ship 04
-    let enemy_texture = asset_server.load("sprites/Ship_04.png");
+    let enemy_texture = load_image_with_fallback(&asset_server, "sprites/Ship_04");
     commands.insert_resource(EnemySprite(enemy_texture));
 
     // Load projectile sprite - using craftpix laser
-    let projectile_texture = asset_server.load("sprites/laser1_small.png");
+    let projectile_texture = load_image_with_fallback(&asset_server, "sprites/laser1_small");
     commands.insert_resource(ProjectileSprite(projectile_texture));
 
     // Load background textures - using the derelict ship copy images
-    let background1 = asset_server.load("backgrounds/derelict_ship_main.png");
-    let background2 = asset_server.load("backgrounds/derelict_ship_2.png");
-    let background3 = asset_server.load("backgrounds/derelict_ship_3.png");
+    let background1 = load_image_with_fallback(&asset_server, "backgrounds/derelict_ship_main");
+    let background2 = load_image_with_fallback(&asset_server, "backgrounds/derelict_ship_2");
+    let background3 = load_image_with_fallback(&asset_server, "backgrounds/derelict_ship_3");
 
     // Spawn a 2D camera centered on the game area
     let game_config = &*GAME_CONFIG;
@@ -603,7 +635,7 @@ fn render_networked_entities(
         commands.entity(entity).insert((
             Sprite {
                 image: enemy_sprite.0.clone(),
-                custom_size: Some(Vec2::new(24.0, 24.0)), // Set explicit size for enemies
+                custom_size: Some(Vec2::splat(BOID_SPRITE_SIZE)),
                 ..default()
             },
             Transform::from_translation(Vec3::new(position.x, position.y, 3.0))
@@ -662,7 +694,7 @@ fn render_networked_entities(
         commands.entity(entity).insert((
             Sprite {
                 image: projectile_sprite.0.clone(),
-                custom_size: Some(Vec2::new(18.0, 18.0)), // Projectile size
+                custom_size: Some(Vec2::splat(PROJECTILE_SPRITE_SIZE)),
                 ..default()
             },
             Transform::from_translation(Vec3::new(position.x, position.y, 4.0)) // In front of other entities
@@ -1113,9 +1145,9 @@ fn debug_collision_system(
         } else {
             // Update size based on scale settings
             let size = if outline.is_player {
-                62.4 * debug_settings.player_scale
+                PLAYER_SPRITE_SIZE * debug_settings.player_scale
             } else {
-                24.0 * debug_settings.boid_scale
+                BOID_SPRITE_SIZE * debug_settings.boid_scale
             };
             sprite.custom_size = Some(Vec2::new(size, size));
             sprite.color = debug_settings.collision_color;
@@ -1130,11 +1162,11 @@ fn debug_collision_system(
     // Create outlines for new players
     for (entity, position) in players.iter() {
         if !outlined_entities.contains(&entity) {
-            let size = 62.4 * debug_settings.player_scale; // Player sprite size
+            let size = PLAYER_SPRITE_SIZE * debug_settings.player_scale;
             commands.spawn((
                 Sprite {
                     color: debug_settings.collision_color,
-                    custom_size: Some(Vec2::new(size, size)), // Player collision box scaled
+                    custom_size: Some(Vec2::new(size, size)),
                     ..default()
                 },
                 Transform::from_translation(Vec3::new(position.x, position.y, 10.0)),
@@ -1149,11 +1181,11 @@ fn debug_collision_system(
     // Create outlines for new boids (circular colliders)
     for (entity, position) in boids.iter() {
         if !outlined_entities.contains(&entity) {
-            let size = 24.0 * debug_settings.boid_scale; // Boid sprite size
+            let size = BOID_SPRITE_SIZE * debug_settings.boid_scale;
             commands.spawn((
                 Sprite {
                     color: debug_settings.collision_color,
-                    custom_size: Some(Vec2::new(size, size)), // Boid collision circle scaled
+                    custom_size: Some(Vec2::new(size, size)),
                     ..default()
                 },
                 Transform::from_translation(Vec3::new(position.x, position.y, 10.0)),
@@ -1188,7 +1220,7 @@ fn handle_projectile_spawn_events(
             },
             Sprite {
                 image: projectile_sprite.0.clone(),
-                custom_size: Some(Vec2::new(18.0, 18.0)),
+                custom_size: Some(Vec2::splat(PROJECTILE_SPRITE_SIZE)),
                 ..default()
             },
             Transform::from_translation(Vec3::new(event.position.x, event.position.y, 4.0)),
