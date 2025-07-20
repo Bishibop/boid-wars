@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
-use boid_wars_shared::{Position, Velocity as NetworkVelocity};
+use boid_wars_shared::{Position, Velocity as NetworkVelocity, Player, Boid};
 use std::time::Duration;
 use tracing::info;
 
@@ -38,7 +38,9 @@ impl Plugin for PositionSyncPlugin {
             PostUpdate,
             (
                 initial_position_sync,
-                sync_physics_to_network,
+                sync_player_physics_to_network,
+                sync_boid_physics_to_network,
+                sync_other_physics_to_network,
                 sync_velocity_to_network,
             )
                 .chain()
@@ -71,6 +73,10 @@ pub struct SyncConfig {
     pub min_sync_velocity: f32,
     /// Enable drift correction (automatically snap positions if drift detected)
     pub auto_correct_drift: bool,
+    /// Sync rate for player entities (30Hz)
+    pub player_sync_timer: Timer,
+    /// Sync rate for boid entities (15Hz)
+    pub boid_sync_timer: Timer,
 }
 
 impl Default for SyncConfig {
@@ -80,6 +86,8 @@ impl Default for SyncConfig {
             min_sync_distance: 0.1, // Increased from 0.001 - only sync meaningful movement
             min_sync_velocity: 0.1,  // Increased from 0.001 - reduce velocity spam
             auto_correct_drift: true, // Always auto-correct to prevent drift
+            player_sync_timer: Timer::from_seconds(0.033, TimerMode::Repeating), // 30Hz
+            boid_sync_timer: Timer::from_seconds(0.066, TimerMode::Repeating),   // 15Hz
         }
     }
 }
@@ -121,9 +129,9 @@ pub fn initial_position_sync(
     }
 }
 
-/// Sync physics Transform to network Position and Rotation (server-side)
+/// Sync player physics Transform to network Position and Rotation (30Hz)
 #[allow(clippy::type_complexity)]
-pub fn sync_physics_to_network(
+pub fn sync_player_physics_to_network(
     mut query: Query<
         (
             &Transform,
@@ -131,11 +139,17 @@ pub fn sync_physics_to_network(
             &mut boid_wars_shared::Rotation,
             Entity,
         ),
-        With<SyncPosition>,
+        (With<SyncPosition>, With<Player>),
     >,
-    config: Res<SyncConfig>,
+    mut config: ResMut<SyncConfig>,
+    time: Res<Time>,
     mut metrics: ResMut<SyncPerformanceMetrics>,
 ) {
+    // Only sync at 30Hz
+    if !config.player_sync_timer.tick(time.delta()).just_finished() {
+        return;
+    }
+
     let start = std::time::Instant::now();
     let mut sync_count = 0;
 
@@ -162,7 +176,6 @@ pub fn sync_physics_to_network(
         if rotation_changed {
             rotation.angle = new_angle;
             sync_count += 1;
-
         }
     }
 
@@ -170,6 +183,85 @@ pub fn sync_physics_to_network(
     metrics.positions_synced += sync_count;
     metrics.last_frame_syncs = sync_count;
     metrics.sync_time_ms = start.elapsed().as_secs_f32() * 1000.0;
+}
+
+/// Sync boid physics Transform to network Position (15Hz)
+/// Note: Boids don't sync rotation - it's derived from velocity on client
+#[allow(clippy::type_complexity)]
+pub fn sync_boid_physics_to_network(
+    mut query: Query<
+        (
+            &Transform,
+            &mut Position,
+            Entity,
+        ),
+        (With<SyncPosition>, With<Boid>),
+    >,
+    mut config: ResMut<SyncConfig>,
+    time: Res<Time>,
+    mut metrics: ResMut<SyncPerformanceMetrics>,
+) {
+    // Only sync at 15Hz
+    if !config.boid_sync_timer.tick(time.delta()).just_finished() {
+        return;
+    }
+
+    let mut sync_count = 0;
+
+    for (transform, mut position, _entity) in query.iter_mut() {
+        let new_pos = transform.translation.truncate();
+        let old_pos = position.0;
+
+        // Sync position if it changed significantly
+        if new_pos.distance(old_pos) > config.min_sync_distance {
+            position.0 = new_pos;
+            sync_count += 1;
+        }
+    }
+
+    metrics.positions_synced += sync_count;
+}
+
+/// Sync other entities (obstacles, etc) - runs every frame for now
+#[allow(clippy::type_complexity)]
+pub fn sync_other_physics_to_network(
+    mut query: Query<
+        (
+            &Transform,
+            &mut Position,
+            Option<&mut boid_wars_shared::Rotation>,
+            Entity,
+        ),
+        (With<SyncPosition>, Without<Player>, Without<Boid>),
+    >,
+    config: Res<SyncConfig>,
+    mut metrics: ResMut<SyncPerformanceMetrics>,
+) {
+    let mut sync_count = 0;
+
+    for (transform, mut position, rotation, _entity) in query.iter_mut() {
+        let new_pos = transform.translation.truncate();
+        let old_pos = position.0;
+
+        // Sync position if it changed significantly
+        if new_pos.distance(old_pos) > config.min_sync_distance {
+            position.0 = new_pos;
+            sync_count += 1;
+        }
+
+        // Sync rotation if present and changed
+        if let Some(mut rot) = rotation {
+            let new_angle = transform.rotation.to_euler(bevy::math::EulerRot::ZYX).0;
+            let old_angle = rot.angle;
+            
+            if (new_angle - old_angle).abs() > ROTATION_SYNC_THRESHOLD {
+                rot.angle = new_angle;
+                sync_count += 1;
+            }
+        }
+    }
+
+    metrics.positions_synced += sync_count;
 }
 
 /// Sync physics Velocity to network Velocity (server-side)

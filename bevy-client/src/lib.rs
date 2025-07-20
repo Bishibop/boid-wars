@@ -65,7 +65,7 @@ pub fn run() {
                     resolution: (1200.0, 900.0).into(),
                     canvas: Some("#bevy-canvas".into()),
                     fit_canvas_to_parent: true,
-                    prevent_default_event_handling: true,
+                    prevent_default_event_handling: false,
                     ..default()
                 }),
                 ..default()
@@ -733,9 +733,21 @@ fn sync_position_to_transform(
                 });
             }
         } else {
-            // Players and projectiles get direct position updates (no smoothing)
-            transform.translation.x = position.x;
-            transform.translation.y = position.y;
+            // Players and projectiles get position updates
+            if player.is_some() && local_player.is_none() {
+                // Remote players get light interpolation for 30Hz updates
+                let target_pos = position.0;
+                let current_pos = transform.translation.truncate();
+                
+                // Smooth position interpolation (10% per frame)
+                let smoothed_pos = current_pos.lerp(target_pos, 0.1);
+                transform.translation.x = smoothed_pos.x;
+                transform.translation.y = smoothed_pos.y;
+            } else {
+                // Local players and projectiles get direct updates
+                transform.translation.x = position.x;
+                transform.translation.y = position.y;
+            }
 
             // Handle rotation for projectiles
             if projectile.is_some() {
@@ -752,8 +764,19 @@ fn sync_position_to_transform(
             // (Local player rotation is handled by update_player_rotation_to_mouse)
             if let Some(rot) = rotation {
                 if player.is_some() && local_player.is_none() {
-                    // Server already applies the sprite offset, so use the angle directly
-                    transform.rotation = Quat::from_rotation_z(rot.angle);
+                    // Remote players get light interpolation for smoother 30Hz updates
+                    let target_rotation = rot.angle;
+                    let current_rotation = transform.rotation.to_euler(EulerRot::ZYX).0;
+                    
+                    // Smooth rotation interpolation (15% per frame)
+                    let angle_diff = (target_rotation - current_rotation).rem_euclid(std::f32::consts::TAU);
+                    let interpolated_angle = if angle_diff > std::f32::consts::PI {
+                        current_rotation - (std::f32::consts::TAU - angle_diff) * 0.15
+                    } else {
+                        current_rotation + angle_diff * 0.15
+                    };
+                    
+                    transform.rotation = Quat::from_rotation_z(interpolated_angle);
                 }
             }
         }
