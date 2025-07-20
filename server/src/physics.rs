@@ -19,8 +19,7 @@ const BOTTOM_WALL_NAME: &str = "Bottom Wall";
 const LEFT_WALL_NAME: &str = "Left Wall";
 const RIGHT_WALL_NAME: &str = "Right Wall";
 
-// Re-export for backward compatibility
-// Removed: BOID_RADIUS constant - now using PhysicsConfig.boid_radius
+// BOID_RADIUS constant now in PhysicsConfig.boid_radius
 
 /// Pre-allocated buffers for hot path operations
 #[derive(Resource)]
@@ -355,8 +354,6 @@ impl Plugin for PhysicsPlugin {
                     collision_system.in_set(PhysicsSet::Collision),
                     return_projectiles_to_pool.in_set(PhysicsSet::ResourceManagement),
                     cleanup_system.in_set(PhysicsSet::ResourceManagement),
-                    (sync_physics_to_network, sync_projectile_physics_to_network)
-                        .in_set(PhysicsSet::NetworkSync),
                 ),
             )
             // Combat system runs in Update for responsive shooting
@@ -755,8 +752,6 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
         bevy_rapier2d::geometry::CollisionGroups::new(collision_groups.walls, Group::ALL),
         Name::new(RIGHT_WALL_NAME),
     ));
-
-    // Removed arena setup log
 }
 
 /// AI system for automated testing
@@ -792,8 +787,6 @@ fn ai_player_system(
                 input.aim_direction = direction;
                 input.thrust = 1.0;
                 input.shooting = false;
-
-                // Removed AI debug logs
             }
 
             AIType::Bouncer => {
@@ -814,8 +807,6 @@ fn ai_player_system(
 
                 // Shoot occasionally
                 input.shooting = rand::random::<f32>() < 0.05;
-
-                // Removed AI debug logs
             }
 
             AIType::Shooter => {
@@ -886,8 +877,6 @@ fn player_input_system(
         // Store old velocity for comparison
         let _old_velocity = velocity.linvel;
 
-        // Removed debug logs
-
         // Set velocity directly like the old network system did
         if input.thrust > 0.0 {
             let movement_direction = input.movement.normalize_or_zero();
@@ -895,12 +884,9 @@ fn player_input_system(
 
             // Set velocity directly
             velocity.linvel = movement_direction * target_speed;
-
-            // Removed debug logs
         } else {
             // Stop when no input
             velocity.linvel = Vec2::ZERO;
-            // Removed debug logs
         }
 
         // Handle rotation
@@ -1717,67 +1703,9 @@ pub fn spawn_ai_player(
         Name::new(format!("AI Player {player_id} ({ai_type:?})")),
     ));
 
-    // Removed AI spawn log
-
     entity
 }
 
-/// Sync physics Transform positions to networked Position components - NO CONVERSION NEEDED!
-fn sync_physics_to_network(
-    mut query: Query<
-        (
-            &Transform,
-            &mut boid_wars_shared::Position,
-            &bevy_rapier2d::dynamics::Velocity,
-            &mut boid_wars_shared::Velocity,
-            &Player,
-        ),
-        With<Player>,
-    >,
-    time: Res<Time>,
-    mut debug_timer: Local<f32>,
-) {
-    *debug_timer += time.delta_secs();
-
-    // Removed debug logs
-
-    for (transform, mut position, physics_vel, mut net_vel, _player) in query.iter_mut() {
-        // Direct copy - both systems use same coordinate system now!
-        let physics_pos = transform.translation.truncate();
-        position.0 = physics_pos;
-
-        // Sync velocity from physics
-        net_vel.0 = physics_vel.linvel;
-
-        // Removed debug logs
-    }
-
-    if *debug_timer > 2.0 {
-        *debug_timer = 0.0;
-    }
-}
-
-/// Sync projectile physics positions to networked Position components
-#[allow(clippy::type_complexity)]
-fn sync_projectile_physics_to_network(
-    mut projectiles: Query<
-        (
-            &Transform,
-            &mut boid_wars_shared::Position,
-            &bevy_rapier2d::dynamics::Velocity,
-            &mut boid_wars_shared::Velocity,
-        ),
-        (With<Projectile>, With<boid_wars_shared::Projectile>),
-    >,
-) {
-    for (transform, mut position, physics_vel, mut net_vel) in projectiles.iter_mut() {
-        // Sync position from physics to network
-        position.0 = transform.translation.truncate();
-
-        // Sync velocity from physics to network
-        net_vel.0 = physics_vel.linvel;
-    }
-}
 
 /// System to clean up expired player aggression entries
 fn cleanup_player_aggression(mut player_aggression: ResMut<PlayerAggression>) {

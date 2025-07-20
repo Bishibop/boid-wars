@@ -24,6 +24,7 @@ boid-wars-shared = { path = "../shared" }
 # WASM bindings
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = ["Window", "Location"] }
+js-sys = "0.3"
 console_error_panic_hook = "0.1"
 
 # Additional utilities

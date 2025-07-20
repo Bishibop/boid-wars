@@ -2,6 +2,10 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use boid_wars_shared::{Position, Velocity as NetworkVelocity};
 use std::time::Duration;
+use tracing::info;
+
+// Constants
+const ROTATION_SYNC_THRESHOLD: f32 = 0.01; // ~0.5 degrees in radians
 
 /// Marker component for entities that need position sync
 #[derive(Component)]
@@ -117,24 +121,48 @@ pub fn initial_position_sync(
     }
 }
 
-/// Sync physics Transform to network Position (server-side)
+/// Sync physics Transform to network Position and Rotation (server-side)
 #[allow(clippy::type_complexity)]
 pub fn sync_physics_to_network(
-    mut query: Query<(&Transform, &mut Position, Entity), (Changed<Transform>, With<SyncPosition>)>,
+    mut query: Query<
+        (
+            &Transform,
+            &mut Position,
+            &mut boid_wars_shared::Rotation,
+            Entity,
+        ),
+        With<SyncPosition>,
+    >,
     config: Res<SyncConfig>,
     mut metrics: ResMut<SyncPerformanceMetrics>,
 ) {
     let start = std::time::Instant::now();
     let mut sync_count = 0;
 
-    for (transform, mut position, _entity) in query.iter_mut() {
+    for (transform, mut position, mut rotation, _entity) in query.iter_mut() {
         let new_pos = transform.translation.truncate();
         let old_pos = position.0;
 
-        // Only sync if position changed significantly
-        if new_pos.distance(old_pos) > config.min_sync_distance {
+        // Extract rotation angle from transform (Z rotation for 2D)
+        let new_angle = transform.rotation.to_euler(bevy::math::EulerRot::ZYX).0;
+        let old_angle = rotation.angle;
+
+        // Sync position if it changed significantly
+        let position_changed = new_pos.distance(old_pos) > config.min_sync_distance;
+
+        // Sync rotation if it changed significantly (using angular distance)
+        let angle_diff = (new_angle - old_angle).abs();
+        let rotation_changed = angle_diff > ROTATION_SYNC_THRESHOLD;
+
+        if position_changed {
             position.0 = new_pos;
             sync_count += 1;
+        }
+
+        if rotation_changed {
+            rotation.angle = new_angle;
+            sync_count += 1;
+
         }
     }
 

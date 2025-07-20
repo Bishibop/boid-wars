@@ -7,6 +7,13 @@ use std::net::SocketAddr;
 use tracing::info;
 use wasm_bindgen::prelude::*;
 
+// Constants
+const PLAYER_SPRITE_SIZE: f32 = 62.4; // 30% bigger than base 48x48
+
+// Client-side components
+#[derive(Component)]
+struct LocalPlayer;
+
 // Health bar components
 #[derive(Component)]
 struct PlayerHealthBar;
@@ -92,6 +99,9 @@ pub fn run() {
     // Initialize debug settings
     app.init_resource::<DebugSettings>();
 
+    // Initialize client ID storage
+    app.init_resource::<MyClientId>();
+
     // Add systems
     app.add_systems(Startup, (setup_scene, connect_to_server, setup_ui));
     app.add_systems(
@@ -169,12 +179,15 @@ fn create_client_config() -> lightyear::prelude::client::ClientConfig {
     let io = IoConfig::from_transport(transport);
 
     // Use Netcode auth with matching key and protocol
+    // Generate a unique client ID with full timestamp + large random component to minimize collision risk
+    let client_id = (js_sys::Date::now() as u64) * 10000 + (js_sys::Math::random() * 10000.0) as u64;
+
     let net_config = NetConfig::Netcode {
         config: NetcodeConfig::default(),
         io,
         auth: Authentication::Manual {
             server_addr,
-            client_id: 1,
+            client_id,
             private_key: network_config.dev_key,
             protocol_id: network_config.protocol_id,
         },
@@ -230,6 +243,10 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Load player sprite texture - using Ship_01 Level 1
     let player_texture = asset_server.load("sprites/Ship_LVL_1.png");
     commands.insert_resource(PlayerSprite(player_texture));
+
+    // Load player 2 sprite texture
+    let player2_texture = asset_server.load("sprites/Ship_player_2.png");
+    commands.insert_resource(Player2Sprite(player2_texture));
 
     // Load enemy sprite texture - using Pirate Ship 04
     let enemy_texture = asset_server.load("sprites/Ship_04.png");
@@ -362,9 +379,17 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
 #[derive(Resource)]
 struct PerformanceTimer(Timer);
 
+/// Store the local client ID for identifying our own player
+#[derive(Resource, Default)]
+struct MyClientId(Option<u64>);
+
 /// Resource to hold player sprite texture
 #[derive(Resource)]
 struct PlayerSprite(Handle<Image>);
+
+/// Resource to hold player 2 sprite texture
+#[derive(Resource)]
+struct Player2Sprite(Handle<Image>);
 
 /// Resource to hold enemy sprite texture
 #[derive(Resource)]
@@ -437,13 +462,21 @@ fn connect_to_server(mut commands: Commands) {
 fn handle_connection_events(
     mut connection_events: EventReader<ConnectEvent>,
     mut disconnect_events: EventReader<DisconnectEvent>,
+    mut my_client_id: ResMut<MyClientId>,
 ) {
     for event in connection_events.read() {
-        info!("✅ Connected to server! Client ID: {:?}", event.client_id());
+        let client_id = event.client_id();
+        info!("✅ Connected to server! Client ID: {:?}", client_id);
+
+        // Store our client ID for later use
+        my_client_id.0 = Some(client_id.to_bits());
     }
 
     for event in disconnect_events.read() {
         info!("❌ Disconnected from server: {:?}", event.reason);
+
+        // Clear our client ID on disconnect
+        my_client_id.0 = None;
     }
 }
 
@@ -458,9 +491,11 @@ type UnrenderedProjectile = (With<Projectile>, Without<Sprite>);
 fn render_networked_entities(
     mut commands: Commands,
     player_sprite: Res<PlayerSprite>,
+    player2_sprite: Res<Player2Sprite>,
     enemy_sprite: Res<EnemySprite>,
     projectile_sprite: Res<ProjectileSprite>,
     asset_server: Res<AssetServer>,
+    my_client_id: Res<MyClientId>,
     players: Query<
         (
             Entity,
@@ -468,6 +503,7 @@ fn render_networked_entities(
             Option<&Rotation>,
             &Player,
             Option<&Velocity>,
+            Option<&PlayerNumber>,
         ),
         UnrenderedPlayer,
     >,
@@ -477,17 +513,18 @@ fn render_networked_entities(
 ) {
     // Check if sprites are loaded
     let player_loaded = asset_server.is_loaded(&player_sprite.0);
+    let player2_loaded = asset_server.is_loaded(&player2_sprite.0);
     let enemy_loaded = asset_server.is_loaded(&enemy_sprite.0);
 
-    if !player_loaded || !enemy_loaded {
+    if !player_loaded || !player2_loaded || !enemy_loaded {
         info!(
-            "Waiting for sprites to load... Player: {}, Enemy: {}",
-            player_loaded, enemy_loaded
+            "Waiting for sprites to load... Player: {}, Player2: {}, Enemy: {}",
+            player_loaded, player2_loaded, enemy_loaded
         );
         return;
     }
     // Add visual representation to networked players
-    for (entity, position, rotation, _player, _velocity) in players.iter() {
+    for (entity, position, rotation, player, _velocity, player_number) in players.iter() {
         let mut transform = Transform::from_translation(Vec3::new(position.x, position.y, 3.0));
 
         // Apply rotation if available
@@ -497,10 +534,25 @@ fn render_networked_entities(
             ));
         }
 
-        commands.entity(entity).insert((
+        // Choose sprite based on player number
+        let sprite_handle = match player_number {
+            Some(PlayerNumber::Player1) => player_sprite.0.clone(),
+            Some(PlayerNumber::Player2) => player2_sprite.0.clone(),
+            None => player_sprite.0.clone(), // Default to player 1 sprite if no number
+        };
+
+        // Check if this is our local player and mark it
+        let mut entity_commands = commands.entity(entity);
+        if let Some(local_id) = my_client_id.0 {
+            if player.id == local_id {
+                entity_commands.insert(LocalPlayer);
+            }
+        }
+
+        entity_commands.insert((
             Sprite {
-                image: player_sprite.0.clone(),
-                custom_size: Some(Vec2::new(62.4, 62.4)), // 30% bigger (48 * 1.3)
+                image: sprite_handle,
+                custom_size: Some(Vec2::splat(PLAYER_SPRITE_SIZE)),
                 ..default()
             },
             transform,
@@ -609,6 +661,7 @@ fn sync_position_to_transform(
             Option<&Player>,
             Option<&Projectile>,
             Option<&mut SmoothTransform>,
+            Option<&LocalPlayer>,
         ),
         Or<(Changed<Position>, Changed<Rotation>, Changed<Velocity>)>,
     >,
@@ -622,6 +675,7 @@ fn sync_position_to_transform(
         player,
         projectile,
         smooth_transform,
+        local_player,
     ) in query.iter_mut()
     {
         // Check if this entity needs smooth interpolation (only boids, not players or projectiles)
@@ -683,7 +737,7 @@ fn sync_position_to_transform(
             transform.translation.x = position.x;
             transform.translation.y = position.y;
 
-            // Handle rotation for projectiles (players have their own rotation system)
+            // Handle rotation for projectiles
             if projectile.is_some() {
                 // Use velocity direction for projectile rotation
                 if let Some(vel) = velocity {
@@ -693,14 +747,23 @@ fn sync_position_to_transform(
                     }
                 }
             }
-            // Player rotation is handled by update_player_rotation_to_mouse
+
+            // Sync rotation from server for remote players only
+            // (Local player rotation is handled by update_player_rotation_to_mouse)
+            if let Some(rot) = rotation {
+                if player.is_some() && local_player.is_none() {
+                    // Server already applies the sprite offset, so use the angle directly
+                    transform.rotation = Quat::from_rotation_z(rot.angle);
+                }
+            }
         }
     }
 }
 
 /// Update player sprite rotation to face mouse cursor
+#[allow(clippy::type_complexity)]
 fn update_player_rotation_to_mouse(
-    mut players: Query<(&Position, &mut Transform), With<Player>>,
+    mut players: Query<(&Position, &mut Transform), (With<Player>, With<LocalPlayer>)>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
 ) {
@@ -708,7 +771,7 @@ fn update_player_rotation_to_mouse(
         if let Some(cursor_pos) = window.cursor_position() {
             // Convert cursor position to world coordinates
             if let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) {
-                // Update rotation for all players (typically just one)
+                // Update rotation for local player only
                 for (position, mut transform) in players.iter_mut() {
                     // Calculate direction from player to mouse
                     let direction = (world_pos - position.0).normalize_or_zero();
@@ -730,7 +793,7 @@ fn send_player_input(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    players: Query<&Position, With<Player>>,
+    players: Query<&Position, (With<Player>, With<LocalPlayer>)>,
 ) {
     let mut movement = Vec2::ZERO;
     let fire = keys.pressed(KeyCode::Space) || mouse_buttons.pressed(MouseButton::Left);
@@ -755,23 +818,27 @@ fn send_player_input(
     }
 
     // Calculate aim direction from mouse position
-    let mut aim = movement; // Fallback to movement direction
+    let mut aim = Vec2::ZERO; // Default to no aim
 
     if let (Ok(window), Ok((camera, camera_transform))) = (windows.single(), cameras.single()) {
         if let Some(cursor_pos) = window.cursor_position() {
             // Convert cursor position to world coordinates
             if let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, cursor_pos) {
-                // Get player position (assume we're the first/only player for now)
+                // Get local player position
                 if let Ok(player_pos) = players.single() {
                     // Calculate direction from player to mouse
                     let direction = (world_pos - player_pos.0).normalize_or_zero();
                     if direction.length() > 0.1 {
-                        // Only use mouse aim if it's valid
                         aim = direction;
                     }
                 }
             }
         }
+    }
+
+    // Only fallback to movement direction if no valid mouse aim was calculated
+    if aim.length() < 0.1 && movement.length() > 0.1 {
+        aim = movement;
     }
 
     let input = PlayerInput::new(movement, aim, fire);

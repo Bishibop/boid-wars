@@ -11,6 +11,13 @@ pub use bevy::prelude::Vec2;
 
 // Components
 
+/// Player number to distinguish between players
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum PlayerNumber {
+    Player1,
+    Player2,
+}
+
 /// Player entity component
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Player {
@@ -320,6 +327,7 @@ impl MapEntities for PlayerInput {
 #[derive(Bundle)]
 pub struct PlayerBundle {
     pub player: Player,
+    pub player_number: PlayerNumber,
     pub position: Position,
     pub rotation: Rotation,
     pub velocity: Velocity,
@@ -327,9 +335,10 @@ pub struct PlayerBundle {
 }
 
 impl PlayerBundle {
-    pub fn new(id: u64, name: String, x: f32, y: f32) -> Self {
+    pub fn new(id: u64, name: String, x: f32, y: f32, player_number: PlayerNumber) -> Self {
         Self {
             player: Player { id, name },
+            player_number,
             position: Position::new(x, y),
             rotation: Rotation { angle: 0.0 },
             velocity: Velocity::new(0.0, 0.0),
@@ -384,6 +393,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Velocity>(ChannelDirection::ServerToClient);
         app.register_component::<Health>(ChannelDirection::ServerToClient);
         app.register_component::<Player>(ChannelDirection::ServerToClient);
+        app.register_component::<PlayerNumber>(ChannelDirection::ServerToClient);
         app.register_component::<Boid>(ChannelDirection::ServerToClient);
         app.register_component::<BoidCombatStats>(ChannelDirection::ServerToClient);
         // BoidCombatState is server-only and not registered for replication

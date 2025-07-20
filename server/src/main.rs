@@ -1,11 +1,15 @@
 use bevy::prelude::*;
 use bevy::app::PluginGroupBuilder;
 use boid_wars_shared::*;
+use lightyear::connection::id::ClientId;
 use lightyear::prelude::server::*;
 use lightyear::prelude::{NetworkTarget, SharedConfig};
 use lightyear::server::message::ReceiveMessage;
 use std::net::SocketAddr;
 use tracing::{info, warn};
+
+// Constants
+const PLAYER_2_SPAWN_OFFSET: f32 = 200.0;
 
 // Camera2dBundle should be in prelude
 
@@ -137,7 +141,14 @@ impl Plugin for BoidWarsServerPlugin {
         app.add_systems(Startup, setup_server);
 
         // Connection handling
-        app.add_systems(Update, (handle_connections, handle_player_input));
+        app.add_systems(
+            Update,
+            (
+                handle_connections,
+                handle_disconnections,
+                handle_player_input,
+            ),
+        );
 
         // Add game systems
         app.add_systems(Update, (log_status, spawn_collision_objects_delayed));
@@ -161,6 +172,9 @@ fn setup_server(mut commands: Commands) {
     )));
     
     info!("⏰ Status timer configured (5s intervals)");
+
+    // Initialize player slots
+    commands.insert_resource(PlayerSlots::default());
 }
 
 // Spawn AI players when a human player connects
@@ -175,6 +189,7 @@ fn spawn_collision_objects_delayed(
         *spawned = true;
         // Spawn peaceful boids instead of AI players
 
+        // Re-enabled to test boid synchronization
         spawn_boid_flock(&mut commands, &physics_config);
         spawn_static_obstacles(&mut commands);
     }
@@ -288,12 +303,29 @@ fn handle_connections(
     mut commands: Commands,
     mut connections: EventReader<ConnectEvent>,
     physics_config: Res<PhysicsConfig>,
+    mut player_slots: ResMut<PlayerSlots>,
 ) {
     let game_config = &*GAME_CONFIG;
 
     for event in connections.read() {
         let client_id = event.client_id;
-        // Connection log
+
+        // Determine which player slot to assign
+        let (player_number, spawn_x) = if player_slots.player1.is_none() {
+            // Assign as Player1
+            (PlayerNumber::Player1, game_config.spawn_x)
+        } else if player_slots.player2.is_none() {
+            // Assign as Player2 with different spawn position
+            (PlayerNumber::Player2, game_config.spawn_x + PLAYER_2_SPAWN_OFFSET)
+        } else {
+            // Server is full - reject connection
+            info!("Server full: rejecting client {:?}", client_id);
+            // For now, we'll just continue without spawning the player
+            // TODO: Implement proper disconnect once we find the correct API
+            continue;
+        };
+
+        info!("Client {:?} connected as {:?}", client_id, player_number);
 
         // Spawn a player for the connected client with both networking and physics
         let player_entity = commands
@@ -301,8 +333,9 @@ fn handle_connections(
                 PlayerBundle::new(
                     client_id.to_bits(),
                     format!("Player {}", client_id.to_bits()),
-                    game_config.spawn_x,
+                    spawn_x,
                     game_config.spawn_y,
+                    player_number.clone(),
                 ),
                 // Networking
                 Replicate {
@@ -314,6 +347,12 @@ fn handle_connections(
                 },
             ))
             .id();
+
+        // Store player slot assignment
+        match player_number {
+            PlayerNumber::Player1 => player_slots.player1 = Some((client_id, player_entity)),
+            PlayerNumber::Player2 => player_slots.player2 = Some((client_id, player_entity)),
+        }
 
         // Add physics components separately to avoid tuple size limits
         commands.entity(player_entity).insert((
@@ -358,11 +397,43 @@ fn handle_connections(
     }
 }
 
+// Handle client disconnections
+fn handle_disconnections(
+    mut commands: Commands,
+    mut disconnections: EventReader<DisconnectEvent>,
+    mut player_slots: ResMut<PlayerSlots>,
+) {
+    for event in disconnections.read() {
+        let client_id = event.client_id;
+
+        // Find and remove player from slots
+        if let Some((stored_id, entity)) = player_slots.player1 {
+            if stored_id == client_id {
+                info!("Player 1 (client {:?}) disconnected", client_id);
+                player_slots.player1 = None;
+                commands.entity(entity).despawn();
+            }
+        }
+
+        if let Some((stored_id, entity)) = player_slots.player2 {
+            if stored_id == client_id {
+                info!("Player 2 (client {:?}) disconnected", client_id);
+                player_slots.player2 = None;
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+}
+
 // Handle player input messages - update physics input properly
 fn handle_player_input(
     mut message_events: EventReader<ReceiveMessage<boid_wars_shared::PlayerInput>>,
     mut players: Query<
-        (&boid_wars_shared::Player, &mut physics::PlayerInput),
+        (
+            &boid_wars_shared::Player,
+            &mut physics::PlayerInput,
+            &PlayerNumber,
+        ),
         With<physics::Player>,
     >,
 ) {
@@ -380,8 +451,13 @@ fn handle_player_input(
         }
 
         // Find the player for this client and update their physics input
-        for (player, mut physics_input) in players.iter_mut() {
+        for (player, mut physics_input, player_number) in players.iter_mut() {
             if player.id == client_id.to_bits() {
+                // Skip input for Player2 (ghost player)
+                if matches!(player_number, PlayerNumber::Player2) {
+                    continue;
+                }
+
                 // Update physics input - this feeds into the physics input system
                 physics_input.movement = input.movement.normalize_or_zero(); // Ensure normalized
                 physics_input.aim_direction = input.aim.normalize_or_zero(); // Ensure normalized
@@ -438,3 +514,9 @@ struct StatusTimer(Timer);
 
 #[derive(Resource, Default)]
 struct GameState;
+
+#[derive(Resource, Default)]
+struct PlayerSlots {
+    player1: Option<(ClientId, Entity)>,
+    player2: Option<(ClientId, Entity)>,
+}
