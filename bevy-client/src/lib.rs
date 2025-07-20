@@ -96,12 +96,34 @@ pub fn run() {
 /// Create Lightyear client configuration
 fn create_client_config() -> lightyear::prelude::client::ClientConfig {
     let network_config = &*NETWORK_CONFIG;
-    let server_addr: SocketAddr = network_config
-        .client_connect_addr
-        .parse()
-        .expect("Failed to parse client connect address");
+    
+    // Dynamically construct WebSocket URL based on environment and page protocol
+    let server_addr: SocketAddr = if cfg!(debug_assertions) {
+        // Development: always use localhost with ws://
+        "127.0.0.1:8080".parse().expect("Failed to parse dev address")
+    } else {
+        // Production: construct address using page's host
+        let host = web_sys::window()
+            .and_then(|w| w.location().hostname().ok())
+            .unwrap_or_else(|| "boid-wars.fly.dev".to_string());
+            
+        let protocol = web_sys::window()
+            .and_then(|w| w.location().protocol().ok())
+            .unwrap_or_else(|| "https:".to_string());
+            
+        info!("🔗 Detected page protocol: {}, host: {}", protocol, host);
+        
+        // Try to parse the current host with port 8080
+        // If it fails, fall back to dummy IP (browser will use page host anyway)
+        format!("{}:8080", host)
+            .parse::<SocketAddr>()
+            .unwrap_or_else(|_| {
+                info!("⚠️  Could not parse host as IP, using fallback");
+                "127.0.0.1:8080".parse().unwrap()
+            })
+    };
 
-    info!("🔗 Client will connect to: {}", server_addr);
+    info!("🔗 Client WebSocket config address: {}", server_addr);
 
     // Use WebSocket (no certificates needed!)
     let transport = ClientTransport::WebSocketClient { server_addr };
