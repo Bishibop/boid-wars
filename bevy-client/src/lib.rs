@@ -275,32 +275,45 @@ fn create_client_config() -> lightyear::prelude::client::ClientConfig {
 
 /// UI setup for health bars
 fn setup_ui(mut commands: Commands) {
-    // Player health bar container
+    // Player health bar container with border
     commands
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
                 bottom: Val::Px(20.0),
                 left: Val::Px(20.0),
-                width: Val::Px(200.0),
-                height: Val::Px(20.0),
+                width: Val::Px(204.0), // Increased for border
+                height: Val::Px(24.0), // Increased for border
+                border: UiRect::all(Val::Px(2.0)), // 2px border all around
                 ..default()
             },
-            BackgroundColor(Color::srgb(0.2, 0.2, 0.2)),
+            BackgroundColor(Color::srgb(1.0, 1.0, 1.0)), // White border
+            BorderColor(Color::srgb(1.0, 1.0, 1.0)), // White border color
             PlayerHealthBar,
-            HealthBarBackground,
         ))
         .with_children(|parent| {
-            // Health bar fill
+            // Health bar background (black)
             parent.spawn((
                 Node {
                     width: Val::Percent(100.0),
                     height: Val::Percent(100.0),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.8, 0.2, 0.2)),
-                HealthBarFill,
-            ));
+                BackgroundColor(Color::srgb(0.0, 0.0, 0.0)), // Black background
+                HealthBarBackground,
+            ))
+            .with_children(|parent| {
+                // Health bar fill (red)
+                parent.spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.8, 0.2, 0.2)), // Red fill
+                    HealthBarFill,
+                ));
+            });
         });
 }
 
@@ -393,53 +406,7 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
         ),
     ));
 
-    // Add arena boundary visualization
-    let boundary_color = Color::srgb(0.5, 0.5, 0.5);
-    let boundary_width = 5.0;
-
-    // Top boundary
-    commands.spawn((
-        Sprite::from_color(
-            boundary_color,
-            Vec2::new(game_config.game_width, boundary_width),
-        ),
-        Transform::from_xyz(
-            game_config.game_width / 2.0,
-            game_config.game_height - boundary_width / 2.0,
-            2.0,
-        ),
-    ));
-
-    // Bottom boundary
-    commands.spawn((
-        Sprite::from_color(
-            boundary_color,
-            Vec2::new(game_config.game_width, boundary_width),
-        ),
-        Transform::from_xyz(game_config.game_width / 2.0, boundary_width / 2.0, 2.0),
-    ));
-
-    // Left boundary
-    commands.spawn((
-        Sprite::from_color(
-            boundary_color,
-            Vec2::new(boundary_width, game_config.game_height),
-        ),
-        Transform::from_xyz(boundary_width / 2.0, game_config.game_height / 2.0, 2.0),
-    ));
-
-    // Right boundary
-    commands.spawn((
-        Sprite::from_color(
-            boundary_color,
-            Vec2::new(boundary_width, game_config.game_height),
-        ),
-        Transform::from_xyz(
-            game_config.game_width - boundary_width / 2.0,
-            game_config.game_height / 2.0,
-            2.0,
-        ),
-    ));
+    // Arena boundary visualization removed for cleaner appearance
 }
 
 /// Setup projectile pool with pre-allocated entities
@@ -993,14 +960,14 @@ fn update_health_bars(
     mut health_bar_query: Query<&mut Node, (With<HealthBarFill>, With<PlayerHealthBar>)>,
     // Query for boid health bars
     mut boid_fill_query: Query<(&mut Sprite, &BoidHealthBar), With<HealthBarFill>>,
-    // Query for player health using Health component
-    player_query: Query<&Health, With<Player>>,
+    // Query for local player health using Health component
+    local_player_query: Query<&Health, (With<Player>, With<LocalPlayer>)>,
     // Query for boid health
     boid_query: Query<&Health, With<Boid>>,
 ) {
-    // Update player health bar
-    for health in player_query.iter().take(1) {
-        for mut health_bar in health_bar_query.iter_mut().take(1) {
+    // Update player health bar - only for local player
+    if let Ok(health) = local_player_query.get_single() {
+        for mut health_bar in health_bar_query.iter_mut() {
             let health_percentage = (health.current / health.max).clamp(0.0, 1.0);
             health_bar.width = Val::Percent(health_percentage * 100.0);
         }

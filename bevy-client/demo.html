@@ -9,21 +9,28 @@
             margin: 0;
             padding: 0;
             background: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
             height: 100vh;
             font-family: Arial, sans-serif;
+            overflow: hidden; /* Prevent scrollbars */
         }
         
         #game-container {
-            position: relative;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             border: 2px solid #333;
+            
+            /* Scale to fit viewport while maintaining 4:3 aspect ratio */
+            width: min(100vw, calc(100vh * 1.333)); /* Use smaller of: full width OR height-based width */
+            height: min(100vh, calc(100vw * 0.75)); /* Use smaller of: full height OR width-based height */
         }
         
         #bevy-canvas {
             display: block;
             background: #000;
+            width: 100%;
+            height: 100%;
         }
         
         #loading {
@@ -61,7 +68,7 @@
         <div id="connection-status">
             <p>Connection Status: <span id="status">Connecting...</span></p>
         </div>
-        <canvas id="bevy-canvas" width="1200" height="900"></canvas>
+        <canvas id="bevy-canvas"></canvas>
     </div>
 
     <script type="module">
