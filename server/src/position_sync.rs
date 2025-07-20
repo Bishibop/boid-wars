@@ -82,7 +82,7 @@ pub struct SyncConfig {
 impl Default for SyncConfig {
     fn default() -> Self {
         Self {
-            drift_threshold: 2.5, // Increased from 0.1 to reduce warning spam
+            drift_threshold: 5.0, // Increased to account for 15Hz boid sync + 50% speed boost
             min_sync_distance: 0.1, // Increased from 0.001 - only sync meaningful movement
             min_sync_velocity: 0.1,  // Increased from 0.001 - reduce velocity spam
             auto_correct_drift: true, // Always auto-correct to prevent drift
