@@ -358,13 +358,13 @@ pub fn log_sync_performance(
     }
 
     if timer.tick(time.delta()).just_finished() && metrics.last_frame_syncs > 0 {
-        info!(
-            "Position Sync Performance - Positions: {}, Velocities: {}, Time: {:.2}ms, Last Frame: {}",
-            metrics.positions_synced,
-            metrics.velocities_synced,
-            metrics.sync_time_ms,
-            metrics.last_frame_syncs
-        );
+        // info!(
+        //     "Position Sync Performance - Positions: {}, Velocities: {}, Time: {:.2}ms, Last Frame: {}",
+        //     metrics.positions_synced,
+        //     metrics.velocities_synced,
+        //     metrics.sync_time_ms,
+        //     metrics.last_frame_syncs
+        // );
     }
 }
 

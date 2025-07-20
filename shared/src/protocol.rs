@@ -357,8 +357,8 @@ impl MapEntities for ProjectileDespawnEvent {
 /// Event sent when entity health changes (for efficient health updates)
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct HealthChangeEvent {
-    /// Network entity ID
-    pub entity_id: u32,
+    /// Network entity ID - u64 to support full player IDs
+    pub entity_id: u64,
     /// New health value
     pub new_health: f32,
     /// Maximum health value

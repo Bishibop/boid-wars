@@ -140,7 +140,8 @@ pub fn run() {
     );
 
     // Add Lightyear client plugins
-    let lightyear_config = create_client_config();
+    let (lightyear_config, client_id) = create_client_config();
+    app.insert_resource(MyClientId(client_id));
     app.add_plugins(ClientPlugins::new(lightyear_config));
 
     // Add shared protocol
@@ -159,8 +160,7 @@ pub fn run() {
     // Initialize debug settings
     app.init_resource::<DebugSettings>();
 
-    // Initialize client ID storage
-    app.init_resource::<MyClientId>();
+    // Initialize client projectile tracker
     app.init_resource::<ClientProjectileTracker>();
     
     // Initialize projectile sprite pool
@@ -174,6 +174,7 @@ pub fn run() {
         (
             performance_monitor,
             handle_connection_events,
+            mark_local_player,
             handle_projectile_spawn_events,
             handle_projectile_despawn_events,
             update_client_projectiles,
@@ -199,7 +200,7 @@ pub fn run() {
 // Configuration is now loaded from the shared config system
 
 /// Create Lightyear client configuration
-fn create_client_config() -> lightyear::prelude::client::ClientConfig {
+fn create_client_config() -> (lightyear::prelude::client::ClientConfig, u64) {
     let network_config = &*NETWORK_CONFIG;
     
     // Dynamically construct WebSocket URL based on environment and page protocol
@@ -261,7 +262,7 @@ fn create_client_config() -> lightyear::prelude::client::ClientConfig {
         },
     };
 
-    lightyear::prelude::client::ClientConfig {
+    let config = lightyear::prelude::client::ClientConfig {
         shared: SharedConfig::default(),
         net: net_config,
         replication: Default::default(),
@@ -270,7 +271,9 @@ fn create_client_config() -> lightyear::prelude::client::ClientConfig {
         interpolation: Default::default(),
         prediction: Default::default(),
         sync: Default::default(),
-    }
+    };
+    
+    (config, client_id)
 }
 
 /// UI setup for health bars
@@ -448,9 +451,10 @@ fn setup_projectile_pool(
 #[derive(Resource)]
 struct PerformanceTimer(Timer);
 
-/// Store the local client ID for identifying our own player
-#[derive(Resource, Default)]
-struct MyClientId(Option<u64>);
+/// Store our client ID
+#[derive(Resource)]
+struct MyClientId(u64);
+
 
 /// Resource to hold player sprite texture
 #[derive(Resource)]
@@ -528,21 +532,31 @@ fn connect_to_server(mut commands: Commands) {
 fn handle_connection_events(
     mut connection_events: EventReader<ConnectEvent>,
     mut disconnect_events: EventReader<DisconnectEvent>,
-    mut my_client_id: ResMut<MyClientId>,
 ) {
     for event in connection_events.read() {
         let client_id = event.client_id();
         info!("✅ Connected to server! Client ID: {:?}", client_id);
-
-        // Store our client ID for later use
-        my_client_id.0 = Some(client_id.to_bits());
     }
 
     for event in disconnect_events.read() {
         info!("❌ Disconnected from server: {:?}", event.reason);
+    }
+}
 
-        // Clear our client ID on disconnect
-        my_client_id.0 = None;
+/// Mark the local player entity
+fn mark_local_player(
+    my_client_id: Res<MyClientId>,
+    mut commands: Commands,
+    players: Query<(Entity, &Player), Without<LocalPlayer>>,
+) {
+    // Get our client ID from the resource
+    let our_id = my_client_id.0;
+    
+    // Find and mark our player
+    for (entity, player) in players.iter() {
+        if player.id == our_id {
+            commands.entity(entity).insert(LocalPlayer);
+        }
     }
 }
 
@@ -561,7 +575,6 @@ fn render_networked_entities(
     enemy_sprite: Res<EnemySprite>,
     projectile_sprite: Res<ProjectileSprite>,
     asset_server: Res<AssetServer>,
-    my_client_id: Res<MyClientId>,
     players: Query<
         (
             Entity,
@@ -590,7 +603,7 @@ fn render_networked_entities(
         return;
     }
     // Add visual representation to networked players
-    for (entity, position, rotation, player, _velocity, player_number) in players.iter() {
+    for (entity, position, rotation, _player, _velocity, player_number) in players.iter() {
         let mut transform = Transform::from_translation(Vec3::new(position.x, position.y, 13.0));
 
         // Apply rotation if available
@@ -607,15 +620,8 @@ fn render_networked_entities(
             None => player_sprite.0.clone(), // Default to player 1 sprite if no number
         };
 
-        // Check if this is our local player and mark it
-        let mut entity_commands = commands.entity(entity);
-        if let Some(local_id) = my_client_id.0 {
-            if player.id == local_id {
-                entity_commands.insert(LocalPlayer);
-            }
-        }
-
-        entity_commands.insert((
+        // Add visual components
+        commands.entity(entity).insert((
             Sprite {
                 image: sprite_handle,
                 custom_size: Some(Vec2::splat(PLAYER_SPRITE_SIZE)),
@@ -960,17 +966,46 @@ fn update_health_bars(
     mut health_bar_query: Query<&mut Node, (With<HealthBarFill>, With<PlayerHealthBar>)>,
     // Query for boid health bars
     mut boid_fill_query: Query<(&mut Sprite, &BoidHealthBar), With<HealthBarFill>>,
-    // Query for local player health using Health component
-    local_player_query: Query<&Health, (With<Player>, With<LocalPlayer>)>,
+    // Query for all players with health
+    player_query: Query<(&Health, &Player), With<Player>>,
     // Query for boid health
     boid_query: Query<&Health, With<Boid>>,
+    // Get our client ID
+    my_client_id: Res<MyClientId>,
+    mut log_timer: Local<f32>,
+    time: Res<Time>,
 ) {
-    // Update player health bar - only for local player
-    if let Ok(health) = local_player_query.get_single() {
-        for mut health_bar in health_bar_query.iter_mut() {
-            let health_percentage = (health.current / health.max).clamp(0.0, 1.0);
-            health_bar.width = Val::Percent(health_percentage * 100.0);
+    // Log every second
+    *log_timer += time.delta_secs();
+    let should_log = *log_timer >= 1.0;
+    if should_log {
+        *log_timer = 0.0;
+    }
+    
+    // Get our client ID
+    let our_id = my_client_id.0;
+    
+    // Find our player by matching IDs
+    let mut found_local_player = false;
+    for (health, player) in player_query.iter() {
+        if player.id == our_id {
+            found_local_player = true;
+            if should_log {
+                info!("Local player health: {}/{}", health.current, health.max);
+            }
+            for mut health_bar in health_bar_query.iter_mut() {
+                let health_percentage = (health.current / health.max).clamp(0.0, 1.0);
+                health_bar.width = Val::Percent(health_percentage * 100.0);
+                if should_log {
+                    info!("Health bar updated to {}%", health_percentage * 100.0);
+                }
+            }
+            break;
         }
+    }
+    
+    if !found_local_player && should_log {
+        info!("No local player found for health bar update (our ID: {})", our_id);
     }
 
     // Update boid health bars

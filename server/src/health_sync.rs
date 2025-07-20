@@ -39,9 +39,9 @@ pub fn detect_health_changes(
         if should_send {
             // Determine entity ID for the event
             let entity_id = if let Some(player) = player {
-                player.id as u32
+                player.id  // No cast needed, already u64
             } else if let Some(boid) = boid {
-                boid.id
+                boid.id as u64  // Cast u32 to u64 for boids
             } else {
                 // Skip entities without proper IDs
                 continue;
@@ -53,6 +53,9 @@ pub fn detect_health_changes(
                 new_health: current,
                 max_health: max,
             };
+            
+            info!("Sending health change event - entity: {:?}, id: {} (full u64), health: {}/{}", 
+                entity, entity_id, current, max);
 
             // Send to all connected clients
             let _ = connection.send_message_to_target::<ReliableChannel, _>(
@@ -75,9 +78,9 @@ pub fn send_initial_health(
     for (entity, health, player, boid) in new_entities.iter() {
         // Determine entity ID
         let entity_id = if let Some(player) = player {
-            player.id as u32
+            player.id  // No cast needed, already u64
         } else if let Some(boid) = boid {
-            boid.id
+            boid.id as u64  // Cast u32 to u64 for boids
         } else {
             continue;
         };

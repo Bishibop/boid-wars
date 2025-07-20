@@ -470,8 +470,6 @@ impl GameCollisionGroups {
 #[derive(Component, Clone, Debug)]
 pub struct Player {
     pub player_id: u64,
-    pub health: f32,
-    pub max_health: f32,
     pub thrust_force: f32,
     pub turn_rate: f32,
     pub forward_speed_multiplier: f32,
@@ -482,8 +480,6 @@ impl Default for Player {
     fn default() -> Self {
         Self {
             player_id: 0,
-            health: 100.0,
-            max_health: 100.0,
             thrust_force: 50000.0,
             turn_rate: 5.0,
             forward_speed_multiplier: 1.5,
@@ -1338,7 +1334,7 @@ fn collision_system(
     mut collision_events: EventReader<CollisionEvent>,
     mut buffers: ResMut<PhysicsBuffers>,
     mut health_queries: ParamSet<(
-        Query<(&mut Player, Option<&mut boid_wars_shared::Health>)>,
+        Query<(&Player, &mut boid_wars_shared::Health)>,
         Query<&mut boid_wars_shared::Health, With<boid_wars_shared::Boid>>,
     )>,
     projectile_query: Query<&Projectile>,
@@ -1412,16 +1408,14 @@ fn collision_system(
             }
         }
 
-        if let Ok((mut player, health_opt)) = health_queries.p0().get_mut(player_entity) {
-            // Hit a player - apply damage with clamping
-            player.health = (player.health - damage).max(0.0);
-
-            // Sync to Health component if it exists
-            if let Some(mut health) = health_opt {
-                health.current = player.health;
-            }
-
-            if player.health <= 0.0 {
+        if let Ok((_player, mut health)) = health_queries.p0().get_mut(player_entity) {
+            // Hit a player - apply damage to Health component
+            let old_health = health.current;
+            health.current = (health.current - damage).max(0.0);
+            info!("Player {:?} took damage: {} -> {} (damage: {})", 
+                player_entity, old_health, health.current, damage);
+            
+            if health.current <= 0.0 {
                 handle_player_death(&mut commands, player_entity);
             }
 
@@ -1693,6 +1687,7 @@ pub fn spawn_player(commands: &mut Commands, player_id: u64, spawn_position: Vec
         PlayerInput::default(),
         Ship::default(),
         WeaponStats::default(),
+        boid_wars_shared::Health::default(), // Use default health from config
         bevy_rapier2d::geometry::CollisionGroups::new(
             collision_groups.players,
             collision_groups.projectiles | collision_groups.walls,

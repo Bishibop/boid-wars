@@ -400,8 +400,8 @@ fn handle_connections(
             WeaponStats::default(),
             // Add Health component for replication
             boid_wars_shared::Health {
-                current: 1000.0,
-                max: 1000.0,
+                current: game_config.default_health,
+                max: game_config.default_health,
             },
         ));
 
