@@ -17,6 +17,9 @@ const BOID_SPRITE_SIZE: f32 = 32.0; // Actual boid sprite size
 const PROJECTILE_SPRITE_SIZE: f32 = 18.0; // Actual projectile sprite size
 
 // Client-side components
+#[derive(Component)]
+struct LocalPlayer;
+
 // Health bar components
 #[derive(Component)]
 struct PlayerHealthBar {
@@ -139,7 +142,8 @@ pub fn run() {
     );
 
     // Add Lightyear client plugins
-    let lightyear_config = create_client_config();
+    let (lightyear_config, client_id) = create_client_config();
+    app.insert_resource(MyClientId(client_id));
     app.add_plugins(ClientPlugins::new(lightyear_config));
 
     // Add shared protocol
@@ -172,6 +176,7 @@ pub fn run() {
         (
             performance_monitor,
             handle_connection_events,
+            mark_local_player,
             handle_projectile_spawn_events,
             handle_projectile_despawn_events,
             update_client_projectiles,
@@ -198,7 +203,7 @@ pub fn run() {
 // Configuration is now loaded from the shared config system
 
 /// Create Lightyear client configuration
-fn create_client_config() -> lightyear::prelude::client::ClientConfig {
+fn create_client_config() -> (lightyear::prelude::client::ClientConfig, u64) {
     let network_config = &*NETWORK_CONFIG;
     
     // Dynamically construct WebSocket URL based on environment and page protocol
@@ -260,7 +265,7 @@ fn create_client_config() -> lightyear::prelude::client::ClientConfig {
         },
     };
 
-    lightyear::prelude::client::ClientConfig {
+    let config = lightyear::prelude::client::ClientConfig {
         shared: SharedConfig::default(),
         net: net_config,
         replication: Default::default(),
@@ -269,7 +274,9 @@ fn create_client_config() -> lightyear::prelude::client::ClientConfig {
         interpolation: Default::default(),
         prediction: Default::default(),
         sync: Default::default(),
-    }
+    };
+    
+    (config, client_id)
 }
 
 
@@ -404,6 +411,10 @@ fn setup_projectile_pool(
 #[derive(Resource)]
 struct PerformanceTimer(Timer);
 
+/// Resource to store local client ID
+#[derive(Resource)]
+struct MyClientId(u64);
+
 
 /// Resource to hold player sprite texture
 #[derive(Resource)]
@@ -489,6 +500,20 @@ fn handle_connection_events(
 
     for event in disconnect_events.read() {
         info!("❌ Disconnected from server: {:?}", event.reason);
+    }
+}
+
+/// Mark the local player with LocalPlayer component
+fn mark_local_player(
+    mut commands: Commands,
+    client_id: Res<MyClientId>,
+    players: Query<(Entity, &Player), Without<LocalPlayer>>,
+) {
+    for (entity, player) in players.iter() {
+        if player.id == client_id.0 {
+            commands.entity(entity).insert(LocalPlayer);
+            info!("Marked player {} as local player", player.id);
+        }
     }
 }
 
@@ -814,7 +839,7 @@ fn sync_position_to_transform(
 /// Update player sprite rotation to face mouse cursor
 #[allow(clippy::type_complexity)]
 fn update_player_rotation_to_mouse(
-    mut players: Query<(&Position, &mut Transform), With<Player>>,
+    mut players: Query<(&Position, &mut Transform), (With<Player>, With<LocalPlayer>)>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
 ) {
@@ -844,7 +869,7 @@ fn send_player_input(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    players: Query<&Position, With<Player>>,
+    players: Query<&Position, (With<Player>, With<LocalPlayer>)>,
 ) {
     let mut movement = Vec2::ZERO;
     let fire = keys.pressed(KeyCode::Space) || mouse_buttons.pressed(MouseButton::Left);
