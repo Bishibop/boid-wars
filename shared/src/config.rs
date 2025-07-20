@@ -57,9 +57,9 @@ impl Default for GameConfig {
                 .parse()
                 .unwrap_or(150.0),
             default_health: env::var("BOID_WARS_DEFAULT_HEALTH")
-                .unwrap_or_else(|_| "100.0".to_string())
+                .unwrap_or_else(|_| "1000.0".to_string())
                 .parse()
-                .unwrap_or(100.0),
+                .unwrap_or(1000.0),
             spawn_x: env::var("BOID_WARS_SPAWN_X")
                 .unwrap_or_else(|_| "800.0".to_string())
                 .parse()
