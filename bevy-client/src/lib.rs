@@ -359,15 +359,29 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     let center_x = game_config.game_width * 0.5;
     let center_y = game_config.game_height * 0.5;
 
-    // Load the single background
-    let background_texture = load_image_with_fallback(&asset_server, "backgrounds/angled_bg");
+    // Load starfield background (behind everything)
+    let starfield_texture = load_image_with_fallback(&asset_server, "backgrounds/starfield_background");
     commands.spawn((
         Sprite {
-            image: background_texture,
-            color: Color::WHITE, // No opacity
+            image: starfield_texture,
             ..default()
         },
-        Transform::from_translation(Vec3::new(center_x, center_y, 1.0)), // z-index 1 as requested
+        Transform::from_translation(Vec3::new(center_x, center_y, 0.5)), // Behind everything
+    ));
+
+    // Load spaceship background (on top of starfield)
+    let spaceship_texture = load_image_with_fallback(&asset_server, "backgrounds/angled_bg");
+    commands.spawn((
+        Sprite {
+            image: spaceship_texture,
+            color: Color::srgba(1.0, 1.0, 1.0, 0.7), // Slight opacity
+            ..default()
+        },
+        Transform::from_translation(Vec3::new(
+            center_x + (game_config.game_width * 0.3),  // 30% right
+            center_y - (game_config.game_height * 0.3), // 30% down
+            1.0  // On top of starfield but behind game entities
+        )),
     ));
 
     commands.spawn((
@@ -453,7 +467,7 @@ fn setup_projectile_pool(
                 custom_size: Some(Vec2::splat(PROJECTILE_SPRITE_SIZE)),
                 ..default()
             },
-            Transform::from_translation(Vec3::new(-1000.0, -1000.0, 4.0)), // Off-screen
+            Transform::from_translation(Vec3::new(-1000.0, -1000.0, 14.0)), // Off-screen
             Visibility::Hidden, // Hidden by default
         )).id();
         
@@ -610,7 +624,7 @@ fn render_networked_entities(
     }
     // Add visual representation to networked players
     for (entity, position, rotation, player, _velocity, player_number) in players.iter() {
-        let mut transform = Transform::from_translation(Vec3::new(position.x, position.y, 3.0));
+        let mut transform = Transform::from_translation(Vec3::new(position.x, position.y, 13.0));
 
         // Apply rotation if available
         if let Some(rot) = rotation {
@@ -667,7 +681,7 @@ fn render_networked_entities(
                 custom_size: Some(Vec2::splat(BOID_SPRITE_SIZE)),
                 ..default()
             },
-            Transform::from_translation(Vec3::new(position.x, position.y, 3.0))
+            Transform::from_translation(Vec3::new(position.x, position.y, 13.0))
                 .with_rotation(Quat::from_rotation_z(angle)),
         ));
 
@@ -675,7 +689,7 @@ fn render_networked_entities(
         let health_bar_bg = commands
             .spawn((
                 Sprite::from_color(Color::srgb(0.2, 0.2, 0.2), Vec2::new(20.0, 3.0)),
-                Transform::from_translation(Vec3::new(position.x, position.y + 15.0, 1.5)),
+                Transform::from_translation(Vec3::new(position.x, position.y + 15.0, 11.5)),
                 BoidHealthBar { owner: entity },
             ))
             .id();
@@ -683,7 +697,7 @@ fn render_networked_entities(
         let health_bar_fill = commands
             .spawn((
                 Sprite::from_color(Color::srgb(0.8, 0.2, 0.2), Vec2::new(20.0, 3.0)),
-                Transform::from_translation(Vec3::new(position.x, position.y + 15.0, 1.6)),
+                Transform::from_translation(Vec3::new(position.x, position.y + 15.0, 11.6)),
                 BoidHealthBar { owner: entity },
                 HealthBarFill,
             ))
@@ -703,7 +717,7 @@ fn render_networked_entities(
                 Color::srgb(0.5, 0.3, 0.1),
                 Vec2::new(obstacle.width, obstacle.height),
             ), // Brown obstacles
-            Transform::from_translation(Vec3::new(position.x, position.y, 2.5)), // Slightly behind other entities
+            Transform::from_translation(Vec3::new(position.x, position.y, 12.5)), // Slightly behind other entities
         ));
     }
 
@@ -726,7 +740,7 @@ fn render_networked_entities(
                 custom_size: Some(Vec2::splat(PROJECTILE_SPRITE_SIZE)),
                 ..default()
             },
-            Transform::from_translation(Vec3::new(position.x, position.y, 4.0)) // In front of other entities
+            Transform::from_translation(Vec3::new(position.x, position.y, 14.0)) // In front of other entities
                 .with_rotation(Quat::from_rotation_z(angle)),
         ));
     }
@@ -1198,7 +1212,7 @@ fn debug_collision_system(
                     custom_size: Some(Vec2::new(size, size)),
                     ..default()
                 },
-                Transform::from_translation(Vec3::new(position.x, position.y, 10.0)),
+                Transform::from_translation(Vec3::new(position.x, position.y, 20.0)),
                 CollisionOutline {
                     entity,
                     is_player: true,
@@ -1217,7 +1231,7 @@ fn debug_collision_system(
                     custom_size: Some(Vec2::new(size, size)),
                     ..default()
                 },
-                Transform::from_translation(Vec3::new(position.x, position.y, 10.0)),
+                Transform::from_translation(Vec3::new(position.x, position.y, 20.0)),
                 CollisionOutline {
                     entity,
                     is_player: false,
@@ -1256,7 +1270,7 @@ fn handle_projectile_spawn_events(
                     custom_size: Some(Vec2::splat(PROJECTILE_SPRITE_SIZE)),
                     ..default()
                 },
-                Transform::from_translation(Vec3::new(-1000.0, -1000.0, 4.0)),
+                Transform::from_translation(Vec3::new(-1000.0, -1000.0, 14.0)),
                 Visibility::Hidden,
             )).id()
         } else {
