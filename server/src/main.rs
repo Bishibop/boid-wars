@@ -223,7 +223,8 @@ fn spawn_boid_flock(commands: &mut Commands, physics_config: &PhysicsConfig) {
         neighboring_territories: vec![],
     };
 
-    // Start with just 1 group for testing
+    // Original Recon group (commented out - kept as backup)
+    /*
     groups::spawn_boid_group(
         commands,
         GroupArchetype::Recon {
@@ -232,6 +233,37 @@ fn spawn_boid_flock(commands: &mut Commands, physics_config: &PhysicsConfig) {
         },
         20, // Small group for testing
         simple_territory,
+        &mut group_id_counter,
+        &mut boid_id_counter,
+        physics_config,
+    );
+    */
+
+    // New Patrol group for 2v2 gameplay
+    let patrol_territory = TerritoryData {
+        center: Vec2::new(450.0, 400.0), // Arena center for balanced coverage
+        radius: 350.0, // Large radius for arena-wide patrol
+        zone: ArenaZone::Outer,
+        patrol_points: vec![
+            // Strategic waypoints around arena perimeter and center
+            Vec2::new(200.0, 200.0),   // Top-left area
+            Vec2::new(700.0, 200.0),   // Top-right area  
+            Vec2::new(800.0, 400.0),   // Right-center
+            Vec2::new(700.0, 600.0),   // Bottom-right
+            Vec2::new(200.0, 600.0),   // Bottom-left
+            Vec2::new(100.0, 400.0),   // Left-center
+        ],
+        neighboring_territories: vec![],
+    };
+
+    groups::spawn_boid_group(
+        commands,
+        GroupArchetype::Assault {
+            aggression_multiplier: 1.0,
+            preferred_range: 150.0,
+        },
+        15, // Balanced size for 2v2 gameplay
+        patrol_territory,
         &mut group_id_counter,
         &mut boid_id_counter,
         physics_config,
@@ -368,8 +400,8 @@ fn handle_connections(
             WeaponStats::default(),
             // Add Health component for replication
             boid_wars_shared::Health {
-                current: 100.0,
-                max: 100.0,
+                current: 1000.0,
+                max: 1000.0,
             },
         ));
 

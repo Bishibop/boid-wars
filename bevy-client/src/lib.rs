@@ -185,7 +185,7 @@ pub fn run() {
             update_health_bars,
             update_boid_health_bar_positions,
             cleanup_health_bars,
-            handle_camera_zoom,
+            // handle_camera_zoom, // Removed mouse scroll zoom
             smooth_interpolation_system,
             toggle_debug_display,
             debug_collision_system,
@@ -1031,13 +1031,13 @@ fn update_boid_health_bar_positions(
         // Update background position
         if let Ok(mut bar_transform) = health_bar_query.get_mut(health_link.background) {
             bar_transform.translation.x = boid_transform.translation.x;
-            bar_transform.translation.y = boid_transform.translation.y + 15.0;
+            bar_transform.translation.y = boid_transform.translation.y + 18.0;
         }
 
         // Update fill position
         if let Ok(mut bar_transform) = health_bar_query.get_mut(health_link.fill) {
             bar_transform.translation.x = boid_transform.translation.x;
-            bar_transform.translation.y = boid_transform.translation.y + 15.0;
+            bar_transform.translation.y = boid_transform.translation.y + 18.0;
         }
     }
 }
@@ -1116,7 +1116,8 @@ fn smooth_interpolation_system(
     }
 }
 
-/// Handle camera zoom with mouse wheel
+/// Handle camera zoom with mouse wheel (DISABLED)
+/*
 fn handle_camera_zoom(
     mut scroll_evr: EventReader<bevy::input::mouse::MouseWheel>,
     mut camera_query: Query<&mut Transform, With<Camera2d>>,
@@ -1131,6 +1132,7 @@ fn handle_camera_zoom(
         }
     }
 }
+*/
 
 /// Toggle debug display with C key
 fn toggle_debug_display(

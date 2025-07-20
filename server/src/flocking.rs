@@ -1,6 +1,6 @@
 use crate::spatial_grid::SpatialGrid;
 use bevy::prelude::*;
-use boid_wars_shared::{Boid, Position, Velocity};
+use boid_wars_shared::{Boid, Position, Velocity, BoidGroup, BoidGroupMember, GroupBehavior, Player};
 
 /// Simplified configuration for flocking behavior
 #[derive(Resource, Debug, Clone)]
@@ -85,9 +85,10 @@ impl Default for FlockingConfig {
 /// Simple flocking system that updates boid velocities
 #[allow(clippy::type_complexity)]
 pub fn update_flocking(
-    mut boids: Query<(Entity, &Position, &mut Velocity), With<Boid>>,
+    mut boids: Query<(Entity, &Position, &mut Velocity, Option<&BoidGroupMember>), With<Boid>>,
     obstacle_query: Query<(&Position, &boid_wars_shared::Obstacle), Without<Boid>>,
-    player_query: Query<(&Position, &Velocity), (With<boid_wars_shared::Player>, Without<Boid>)>,
+    player_query: Query<(&Position, &Velocity, &Player), (With<boid_wars_shared::Player>, Without<Boid>)>,
+    group_query: Query<&BoidGroup>,
     spatial_grid: Res<SpatialGrid>,
     config: Res<FlockingConfig>,
     time: Res<Time>,
@@ -106,7 +107,7 @@ pub fn update_flocking(
     // Collect all boid data first to avoid borrow checker issues
     let boid_data: Vec<(Entity, Vec2, Vec2)> = boids
         .iter()
-        .map(|(entity, pos, vel)| (entity, pos.0, vel.0))
+        .map(|(entity, pos, vel, _)| (entity, pos.0, vel.0))
         .collect();
 
     // Create a HashSet for O(1) boid lookups
@@ -114,7 +115,7 @@ pub fn update_flocking(
         boid_data.iter().map(|(e, _, _)| *e).collect();
 
     // Update each boid
-    for (entity, pos, mut vel) in boids.iter_mut() {
+    for (entity, pos, mut vel, group_member) in boids.iter_mut() {
         let mut separation = Vec2::ZERO;
         let mut alignment = Vec2::ZERO;
         let mut cohesion = Vec2::ZERO;
@@ -221,7 +222,7 @@ pub fn update_flocking(
                 }
 
                 // Check for players
-                if let Ok((player_pos, player_vel)) = player_query.get(other_entity) {
+                if let Ok((player_pos, player_vel, player)) = player_query.get(other_entity) {
                     let distance = pos.0.distance(player_pos.0);
                     if distance < config.player_avoidance_radius {
                         let force = calculate_dynamic_avoidance(
@@ -239,6 +240,27 @@ pub fn update_flocking(
             }
         }
 
+        // Check for pursuit behavior if boid is in an engaging group
+        let mut pursuit_force = Vec2::ZERO;
+        let mut is_pursuing = false;
+        
+        if let Some(member) = group_member {
+            if let Ok(group) = group_query.get(member.group_entity) {
+                if let GroupBehavior::Engaging { primary_target, .. } = &group.behavior_state {
+                    // Find the target player
+                    for (target_pos, _, target_player) in player_query.iter() {
+                        if target_player.id as u32 == *primary_target {
+                            // Calculate pursuit force toward target
+                            let direction = (target_pos.0 - pos.0).normalize_or_zero();
+                            pursuit_force = direction * config.max_speed;
+                            is_pursuing = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         // Apply averaged avoidance forces
         if obstacle_count > 0 {
             let avg_force =
@@ -247,11 +269,18 @@ pub fn update_flocking(
             acceleration += steering * config.obstacle_avoidance_weight;
         }
 
-        if player_count > 0 {
+        // Apply player avoidance only if not pursuing
+        if player_count > 0 && !is_pursuing {
             let avg_force =
                 (player_force / player_count as f32).normalize_or_zero() * config.max_speed;
             let steering = (avg_force - vel.0).clamp_length_max(config.max_force);
             acceleration += steering * config.player_avoidance_weight;
+        }
+
+        // Apply pursuit force if pursuing
+        if is_pursuing {
+            let steering = (pursuit_force - vel.0).clamp_length_max(config.max_force);
+            acceleration += steering * 2.0; // Strong pursuit force
         }
 
         // Apply enhanced wall avoidance

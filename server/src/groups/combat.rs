@@ -144,11 +144,11 @@ fn group_combat_coordinator(
                             // Active shooter - enable combat with very slow fire rate
                             // Note: last_shot_time is now in BoidCombatState (server-only)
 
-                            // Adjust fire rate based on role (much slower rates)
+                            // Faster fire rates during pursuit/engagement
                             combat_stats.fire_rate = match member.role_in_group {
-                                BoidRole::Leader => 0.15,  // 1 shot every ~6.7 seconds
-                                BoidRole::Flanker => 0.12, // 1 shot every ~8.3 seconds
-                                _ => 0.1,                  // 1 shot every 10 seconds
+                                BoidRole::Leader => 0.5,   // 1 shot every 2 seconds
+                                BoidRole::Flanker => 0.4,  // 1 shot every 2.5 seconds
+                                _ => 0.3,                  // 1 shot every ~3.3 seconds
                             };
                         } else {
                             // Non-shooter - disable combat by setting very low fire rate

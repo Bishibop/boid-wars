@@ -410,9 +410,12 @@ impl BoidBundle {
             boid: Boid { id },
             position: Position::new(x, y),
             velocity: Velocity::new(0.0, 0.0),
-            health: Health::default(),
+            health: Health {
+                current: 30.0,
+                max: 30.0,
+            },
             combat_stats: BoidCombatStats::default(),
-            combat_state: BoidCombatState::default(),
+            combat_state: BoidCombatState::default()
         }
     }
 }
