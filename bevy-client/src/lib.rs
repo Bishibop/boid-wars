@@ -20,6 +20,48 @@ const PROJECTILE_SPRITE_SIZE: f32 = 18.0; // Actual projectile sprite size
 #[derive(Component)]
 struct LocalPlayer;
 
+// Connection state tracking
+#[derive(Resource, Debug, Clone)]
+enum ConnectionState {
+    Connecting,
+    Connected,
+    Disconnected { #[allow(dead_code)] reason: String },
+    ServerFull { message: String },
+}
+
+impl Default for ConnectionState {
+    fn default() -> Self {
+        ConnectionState::Connecting
+    }
+}
+
+// UI Components
+#[derive(Component)]
+struct ServerFullUI;
+
+#[derive(Component)]
+struct LobbyUI;
+
+// Game state tracking
+#[derive(Resource)]
+struct ClientGameState {
+    phase: boid_wars_shared::GamePhase,
+    player_count: u8,
+    player1_ready: bool,
+    player2_ready: bool,
+}
+
+impl Default for ClientGameState {
+    fn default() -> Self {
+        Self {
+            phase: boid_wars_shared::GamePhase::WaitingForPlayers,
+            player_count: 0,
+            player1_ready: false,
+            player2_ready: false,
+        }
+    }
+}
+
 // Health bar components
 #[derive(Component)]
 struct PlayerHealthBar {
@@ -144,6 +186,8 @@ pub fn run() {
     // Add Lightyear client plugins
     let (lightyear_config, client_id) = create_client_config();
     app.insert_resource(MyClientId(client_id));
+    app.insert_resource(ConnectionState::default());
+    app.insert_resource(ClientGameState::default());
     app.add_plugins(ClientPlugins::new(lightyear_config));
 
     // Add shared protocol
@@ -171,25 +215,58 @@ pub fn run() {
     // Add systems with proper ordering
     app.add_systems(Startup, (setup_scene, connect_to_server));
     app.add_systems(Startup, setup_projectile_pool.after(setup_scene));
+    // Network and connection systems
     app.add_systems(
         Update,
         (
             performance_monitor,
             handle_connection_events,
+            handle_server_full_message,
+            handle_game_state_updates,
             mark_local_player,
+        ),
+    );
+    
+    // Projectile systems
+    app.add_systems(
+        Update,
+        (
             handle_projectile_spawn_events,
             handle_projectile_despawn_events,
             update_client_projectiles,
+        ),
+    );
+    
+    // Rendering and game systems
+    app.add_systems(
+        Update,
+        (
             render_networked_entities,
             sync_position_to_transform,
             update_player_rotation_to_mouse,
             send_player_input,
             debug_player_count,
+        ),
+    );
+    
+    // UI systems
+    app.add_systems(
+        Update,
+        (
             update_health_bars,
             update_boid_health_bar_positions,
             update_player_health_bar_positions,
             cleanup_health_bars,
-            // handle_camera_zoom, // Removed mouse scroll zoom
+            server_full_ui,
+            lobby_ui_system,
+            handle_lobby_input,
+        ),
+    );
+    
+    // Debug and utility systems
+    app.add_systems(
+        Update,
+        (
             smooth_interpolation_system,
             toggle_debug_display,
             debug_collision_system,
@@ -526,14 +603,112 @@ fn connect_to_server(mut commands: Commands) {
 fn handle_connection_events(
     mut connection_events: EventReader<ConnectEvent>,
     mut disconnect_events: EventReader<DisconnectEvent>,
+    mut connection_state: ResMut<ConnectionState>,
 ) {
     for event in connection_events.read() {
         let client_id = event.client_id();
         info!("✅ Connected to server! Client ID: {:?}", client_id);
+        *connection_state = ConnectionState::Connected;
     }
 
     for event in disconnect_events.read() {
         info!("❌ Disconnected from server: {:?}", event.reason);
+        // Don't overwrite ServerFull state with generic disconnect
+        if !matches!(*connection_state, ConnectionState::ServerFull { .. }) {
+            *connection_state = ConnectionState::Disconnected { 
+                reason: format!("{:?}", event.reason) 
+            };
+        }
+    }
+}
+
+/// Handle server full messages
+fn handle_server_full_message(
+    mut message_events: EventReader<ReceiveMessage<ServerFullMessage>>,
+    mut connection_state: ResMut<ConnectionState>,
+) {
+    for message_event in message_events.read() {
+        let msg = &message_event.message;
+        warn!("Server is full: {}/{} players - {}", 
+              msg.current_players, msg.max_players, msg.message);
+        
+        *connection_state = ConnectionState::ServerFull {
+            message: msg.message.clone(),
+        };
+    }
+}
+
+/// Handle game state updates from server
+fn handle_game_state_updates(
+    mut message_events: EventReader<ReceiveMessage<GameStateUpdate>>,
+    mut game_state: ResMut<ClientGameState>,
+) {
+    for message_event in message_events.read() {
+        let update = &message_event.message;
+        game_state.phase = update.phase.clone();
+        game_state.player_count = update.player_count;
+        game_state.player1_ready = update.player1_ready;
+        game_state.player2_ready = update.player2_ready;
+        
+        info!("Game state update: {:?}, players: {}/2, P1 ready: {}, P2 ready: {}", 
+              game_state.phase, game_state.player_count, 
+              game_state.player1_ready, game_state.player2_ready);
+        
+        // Force change detection to trigger UI update
+        game_state.set_changed();
+    }
+}
+
+/// Display server full UI when needed
+fn server_full_ui(
+    mut commands: Commands,
+    connection_state: Res<ConnectionState>,
+    query: Query<Entity, With<ServerFullUI>>,
+) {
+    // Check if we should show the server full UI
+    let should_show = matches!(*connection_state, ConnectionState::ServerFull { .. });
+    
+    if should_show && query.is_empty() {
+        // Create UI showing server is full
+        if let ConnectionState::ServerFull { message } = &*connection_state {
+            commands.spawn((
+                Text::new(message.clone()),
+                TextFont {
+                    font_size: 30.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(1.0, 0.3, 0.3)),
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Percent(40.0),
+                    left: Val::Percent(50.0),
+                    ..default()
+                },
+                ServerFullUI,
+            ));
+            
+            // Add a smaller "Please refresh to try again" message
+            commands.spawn((
+                Text::new("Please refresh the page to try again"),
+                TextFont {
+                    font_size: 20.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: Val::Percent(50.0),
+                    left: Val::Percent(50.0),
+                    ..default()
+                },
+                ServerFullUI,
+            ));
+        }
+    } else if !should_show && !query.is_empty() {
+        // Remove UI if connection state changed
+        for entity in query.iter() {
+            commands.entity(entity).despawn();
+        }
     }
 }
 
@@ -1439,3 +1614,141 @@ fn update_client_projectiles(
         }
     }
 }
+
+/// Display lobby UI
+fn lobby_ui_system(
+    mut commands: Commands,
+    game_state: Res<ClientGameState>,
+    query: Query<Entity, With<LobbyUI>>,
+) {
+    let should_show_lobby = matches!(
+        game_state.phase,
+        boid_wars_shared::GamePhase::WaitingForPlayers | boid_wars_shared::GamePhase::Lobby
+    );
+    
+    // Show lobby UI if needed and either game state changed or UI doesn't exist
+    if should_show_lobby && (game_state.is_changed() || query.is_empty()) {
+        // Remove existing UI first
+        for entity in query.iter() {
+            commands.entity(entity).despawn();
+        }
+        // Create lobby UI
+        commands
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)),
+                LobbyUI,
+            ))
+            .with_children(|parent| {
+                // Title
+                parent.spawn((
+                    Text::new("BOID WARS LOBBY"),
+                    TextFont {
+                        font_size: 48.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                    Node {
+                        margin: UiRect::all(Val::Px(20.0)),
+                        ..default()
+                    },
+                ));
+                
+                // Player count
+                let player_text = match game_state.player_count {
+                    0 => "Waiting for players...".to_string(),
+                    1 => "1/2 Players - Waiting for another player...".to_string(),
+                    2 => "2/2 Players - Press R when ready!".to_string(),
+                    _ => format!("{}/2 Players", game_state.player_count),
+                };
+                
+                parent.spawn((
+                    Text::new(player_text),
+                    TextFont {
+                        font_size: 28.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.6, 0.8, 0.6)),
+                    Node {
+                        margin: UiRect::all(Val::Px(10.0)),
+                        ..default()
+                    },
+                ));
+                
+                // Ready status
+                if game_state.phase == boid_wars_shared::GamePhase::Lobby {
+                    parent.spawn((
+                        Text::new(format!(
+                            "Player 1: {}\nPlayer 2: {}",
+                            if game_state.player1_ready { "READY ✓" } else { "Not Ready" },
+                            if game_state.player2_ready { "READY ✓" } else { "Not Ready" }
+                        )),
+                        TextFont {
+                            font_size: 24.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                        Node {
+                            margin: UiRect::all(Val::Px(10.0)),
+                            ..default()
+                        },
+                    ));
+                    
+                    // Instructions
+                    parent.spawn((
+                        Text::new("Press R to toggle ready status"),
+                        TextFont {
+                            font_size: 20.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.5, 0.5, 0.8)),
+                        Node {
+                            margin: UiRect::top(Val::Px(30.0)),
+                            ..default()
+                        },
+                    ));
+                }
+            });
+            
+    } else if !should_show_lobby && !query.is_empty() {
+        // Remove lobby UI when game starts
+        for entity in query.iter() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Handle lobby input (R key for ready)
+fn handle_lobby_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    game_state: Res<ClientGameState>,
+    mut commands: Commands,
+) {
+    // Only handle input in lobby phase
+    if game_state.phase != boid_wars_shared::GamePhase::Lobby {
+        return;
+    }
+    
+    if keys.just_pressed(KeyCode::KeyR) {
+        // Send ready message to server
+        commands.queue(|world: &mut World| {
+            if let Some(mut client) = world.get_resource_mut::<ConnectionManager>() {
+                let ready_msg = boid_wars_shared::PlayerReady;
+                if let Err(e) = client.send_message::<boid_wars_shared::ReliableChannel, _>(&ready_msg) {
+                    warn!("Failed to send ready message: {:?}", e);
+                } else {
+                    info!("Sent ready message to server");
+                }
+            }
+        });
+    }
+}
+

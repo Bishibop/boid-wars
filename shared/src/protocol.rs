@@ -380,6 +380,58 @@ impl MapEntities for HealthChangeEvent {
     fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
 }
 
+/// Message sent by the server when it cannot accept new connections
+/// due to being at maximum capacity
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct ServerFullMessage {
+    /// Current number of connected players
+    pub current_players: u8,
+    /// Maximum number of players allowed
+    pub max_players: u8,
+    /// Human-readable explanation message
+    pub message: String,
+}
+
+impl MapEntities for ServerFullMessage {
+    fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
+}
+
+/// Represents the current phase of the game session
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub enum GamePhase {
+    /// Waiting for enough players to join
+    WaitingForPlayers,
+    /// All players connected, waiting for ready confirmations
+    Lobby,
+    /// Game is active and playable
+    InGame,
+}
+
+/// Message sent by a client to indicate they are ready to start the game
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct PlayerReady;
+
+impl MapEntities for PlayerReady {
+    fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
+}
+
+/// Server broadcast containing the current game state and player statuses
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct GameStateUpdate {
+    /// Current game phase
+    pub phase: GamePhase,
+    /// Number of connected players
+    pub player_count: u8,
+    /// Whether player 1 has indicated they are ready
+    pub player1_ready: bool,
+    /// Whether player 2 has indicated they are ready
+    pub player2_ready: bool,
+}
+
+impl MapEntities for GameStateUpdate {
+    fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
+}
+
 // Bundles
 
 #[derive(Bundle)]
@@ -451,6 +503,10 @@ impl Plugin for ProtocolPlugin {
         app.register_type::<ProjectileSpawnEvent>();
         app.register_type::<ProjectileDespawnEvent>();
         app.register_type::<HealthChangeEvent>();
+        app.register_type::<ServerFullMessage>();
+        app.register_type::<GamePhase>();
+        app.register_type::<PlayerReady>();
+        app.register_type::<GameStateUpdate>();
 
         // Register components for replication using correct Lightyear 0.20 API
         // Server-authoritative components (unidirectional to save bandwidth)
@@ -476,6 +532,9 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<ProjectileSpawnEvent>(ChannelDirection::ServerToClient);
         app.register_message::<ProjectileDespawnEvent>(ChannelDirection::ServerToClient);
         app.register_message::<HealthChangeEvent>(ChannelDirection::ServerToClient);
+        app.register_message::<ServerFullMessage>(ChannelDirection::ServerToClient);
+        app.register_message::<PlayerReady>(ChannelDirection::ClientToServer);
+        app.register_message::<GameStateUpdate>(ChannelDirection::ServerToClient);
 
         // Register channels using correct Lightyear 0.20 API
         app.add_channel::<UnreliableChannel>(ChannelSettings {

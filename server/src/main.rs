@@ -3,13 +3,10 @@ use bevy::prelude::*;
 use boid_wars_shared::*;
 use lightyear::connection::id::ClientId;
 use lightyear::prelude::server::*;
-use lightyear::prelude::{NetworkTarget, SharedConfig};
+use lightyear::prelude::{MessageSend, NetworkTarget, SharedConfig};
 use lightyear::server::message::ReceiveMessage;
 use std::net::SocketAddr;
 use tracing::{info, warn};
-
-// Constants
-const PLAYER_2_SPAWN_OFFSET: f32 = 200.0;
 
 // Camera2dBundle should be in prelude
 
@@ -160,6 +157,9 @@ impl Plugin for BoidWarsServerPlugin {
                 handle_connections,
                 handle_disconnections,
                 handle_player_input,
+                handle_player_ready,
+                send_game_state_updates,
+                check_start_game,
             ),
         );
 
@@ -190,15 +190,15 @@ fn setup_server(mut commands: Commands) {
     commands.insert_resource(PlayerSlots::default());
 }
 
-// Spawn AI players when a human player connects
+// Spawn AI players when the game starts
 fn spawn_collision_objects_delayed(
     mut commands: Commands,
-    players: Query<&boid_wars_shared::Player>,
+    game_state: Res<GameState>,
     mut spawned: Local<bool>,
     physics_config: Res<PhysicsConfig>,
 ) {
-    // Wait until at least one player is connected and we haven't spawned yet
-    if !players.is_empty() && !*spawned {
+    // Only spawn when game is in InGame phase and we haven't spawned yet
+    if game_state.phase == boid_wars_shared::GamePhase::InGame && !*spawned {
         *spawned = true;
         // Spawn peaceful boids instead of AI players
 
@@ -398,10 +398,10 @@ fn spawn_static_obstacles(commands: &mut Commands) {
 
 // Handle new client connections
 fn handle_connections(
-    mut commands: Commands,
     mut connections: EventReader<ConnectEvent>,
-    physics_config: Res<PhysicsConfig>,
     mut player_slots: ResMut<PlayerSlots>,
+    mut connection_manager: ResMut<ConnectionManager>,
+    mut game_state: ResMut<GameState>,
 ) {
     let game_config = &*GAME_CONFIG;
 
@@ -409,93 +409,65 @@ fn handle_connections(
         let client_id = event.client_id;
 
         // Determine which player slot to assign
-        let (player_number, spawn_x, spawn_y) = if player_slots.player1.is_none() {
-            // Assign as Player1 - top left corner
-            (PlayerNumber::Player1, 100.0, 100.0)
+        let player_number = if player_slots.player1.is_none() {
+            PlayerNumber::Player1
         } else if player_slots.player2.is_none() {
-            // Assign as Player2 - bottom right corner
-            (
-                PlayerNumber::Player2,
-                game_config.game_width - 100.0,
-                game_config.game_height - 100.0,
-            )
+            PlayerNumber::Player2
         } else {
-            // Server is full - reject connection
+            // Server is full - send rejection message then disconnect
             info!("Server full: rejecting client {:?}", client_id);
-            // For now, we'll just continue without spawning the player
-            // TODO: Implement proper disconnect once we find the correct API
+            
+            let server_full_msg = boid_wars_shared::ServerFullMessage {
+                current_players: 2,
+                max_players: 2,
+                message: "Server is full (2/2 players). Please try again later.".to_string(),
+            };
+            
+            // Send message to the specific client
+            if let Err(e) = connection_manager
+                .send_message_to_target::<boid_wars_shared::ReliableChannel, _>(
+                    &server_full_msg,
+                    NetworkTarget::Single(client_id),
+                ) {
+                warn!("Failed to send ServerFull message: {:?}", e);
+            }
+            
+            // Client will disconnect themselves after receiving ServerFull message
             continue;
         };
 
         info!("Client {:?} connected as {:?}", client_id, player_number);
 
-        // Spawn a player for the connected client with both networking and physics
-        let player_entity = commands
-            .spawn((
-                PlayerBundle::new(
-                    client_id.to_bits(),
-                    format!("Player {}", client_id.to_bits()),
-                    spawn_x,
-                    spawn_y,
-                    player_number.clone(),
-                ),
-                // Networking
-                Replicate {
-                    controlled_by: ControlledBy {
-                        target: NetworkTarget::Single(client_id),
-                        ..default()
-                    },
-                    ..default()
-                },
-            ))
-            .id();
-
-        // Store player slot assignment
+        // Store player slot assignment WITHOUT spawning yet
+        // We'll use a placeholder entity until they're ready
         match player_number {
-            PlayerNumber::Player1 => player_slots.player1 = Some((client_id, player_entity)),
-            PlayerNumber::Player2 => player_slots.player2 = Some((client_id, player_entity)),
+            PlayerNumber::Player1 => {
+                player_slots.player1 = Some((client_id, Entity::PLACEHOLDER));
+                // Force a change detection for immediate update
+                game_state.set_changed();
+                if player_slots.player2.is_some() {
+                    // Both players connected, move to lobby phase
+                    game_state.phase = boid_wars_shared::GamePhase::Lobby;
+                    info!("Both players connected, entering lobby phase");
+                }
+            }
+            PlayerNumber::Player2 => {
+                player_slots.player2 = Some((client_id, Entity::PLACEHOLDER));
+                // Force a change detection for immediate update
+                game_state.set_changed();
+                if player_slots.player1.is_some() {
+                    // Both players connected, move to lobby phase
+                    game_state.phase = boid_wars_shared::GamePhase::Lobby;
+                    info!("Both players connected, entering lobby phase");
+                }
+            }
         }
 
-        // Add physics components separately to avoid tuple size limits
-        commands.entity(player_entity).insert((
-            physics::Player {
-                player_id: client_id.to_bits(),
-                ..Default::default()
-            },
-            physics::PlayerInput::default(),
-            Ship::default(),
-            WeaponStats::default(),
-            // Add Health component for replication
-            boid_wars_shared::Health {
-                current: game_config.default_health,
-                max: game_config.default_health,
-            },
-        ));
-
-        // Add physics body components
-        commands.entity(player_entity).insert((
-            RigidBody::Dynamic,
-            Collider::cuboid(
-                physics_config.player_collider_size,
-                physics_config.player_collider_size,
-            ),
-            GameCollisionGroups::player(),
-            physics::Velocity::zero(),
-            ExternalForce::default(),
-            ExternalImpulse::default(),
-            Transform::from_xyz(spawn_x, spawn_y, 0.0), // Use player-specific spawn position
-            GlobalTransform::default(),
-            bevy_rapier2d::dynamics::GravityScale(0.0), // Disable gravity for top-down space game
-            bevy_rapier2d::dynamics::Sleeping::disabled(),
-            bevy_rapier2d::dynamics::Damping {
-                linear_damping: 0.0, // No damping for immediate response
-                angular_damping: 0.0,
-            },
-            bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(1.0), // Light mass
-            SyncPosition,                                                 // Mark for position sync
-        ));
-
-        // Spawn logs
+        // Player spawning code moved to check_start_game system
+        info!(
+            "Player slot assigned for client {:?}, waiting for ready signal",
+            client_id
+        );
     }
 }
 
@@ -504,6 +476,7 @@ fn handle_disconnections(
     mut commands: Commands,
     mut disconnections: EventReader<DisconnectEvent>,
     mut player_slots: ResMut<PlayerSlots>,
+    mut game_state: ResMut<GameState>,
 ) {
     for event in disconnections.read() {
         let client_id = event.client_id;
@@ -513,7 +486,12 @@ fn handle_disconnections(
             if stored_id == client_id {
                 info!("Player 1 (client {:?}) disconnected", client_id);
                 player_slots.player1 = None;
-                commands.entity(entity).despawn();
+                game_state.player1_ready = false;
+                
+                // Only despawn if entity was actually spawned (not placeholder)
+                if entity != Entity::PLACEHOLDER {
+                    commands.entity(entity).despawn();
+                }
             }
         }
 
@@ -521,8 +499,19 @@ fn handle_disconnections(
             if stored_id == client_id {
                 info!("Player 2 (client {:?}) disconnected", client_id);
                 player_slots.player2 = None;
-                commands.entity(entity).despawn();
+                game_state.player2_ready = false;
+                
+                // Only despawn if entity was actually spawned (not placeholder)
+                if entity != Entity::PLACEHOLDER {
+                    commands.entity(entity).despawn();
+                }
             }
+        }
+        
+        // Reset to waiting phase if any player disconnects
+        if player_slots.player1.is_none() || player_slots.player2.is_none() {
+            game_state.phase = boid_wars_shared::GamePhase::WaitingForPlayers;
+            info!("Player disconnected, returning to waiting phase");
         }
     }
 }
@@ -609,11 +598,216 @@ fn log_status(
 #[derive(Resource)]
 struct StatusTimer(Timer);
 
-#[derive(Resource, Default)]
-struct GameState;
+#[derive(Resource)]
+struct GameState {
+    phase: boid_wars_shared::GamePhase,
+    player1_ready: bool,
+    player2_ready: bool,
+}
+
+impl Default for GameState {
+    fn default() -> Self {
+        Self {
+            phase: boid_wars_shared::GamePhase::WaitingForPlayers,
+            player1_ready: false,
+            player2_ready: false,
+        }
+    }
+}
 
 #[derive(Resource, Default)]
 struct PlayerSlots {
     player1: Option<(ClientId, Entity)>,
     player2: Option<(ClientId, Entity)>,
+}
+
+// Handle player ready messages
+fn handle_player_ready(
+    mut message_events: EventReader<ReceiveMessage<boid_wars_shared::PlayerReady>>,
+    mut game_state: ResMut<GameState>,
+    player_slots: Res<PlayerSlots>,
+) {
+    for event in message_events.read() {
+        let client_id = event.from;
+        
+        // Only process ready in lobby phase
+        if game_state.phase != boid_wars_shared::GamePhase::Lobby {
+            continue;
+        }
+        
+        // Mark the appropriate player as ready
+        if let Some((stored_id, _)) = player_slots.player1 {
+            if stored_id == client_id {
+                game_state.player1_ready = true;
+                info!("Player 1 is ready!");
+            }
+        }
+        
+        if let Some((stored_id, _)) = player_slots.player2 {
+            if stored_id == client_id {
+                game_state.player2_ready = true;
+                info!("Player 2 is ready!");
+            }
+        }
+    }
+}
+
+// Send game state updates to all clients
+fn send_game_state_updates(
+    game_state: Res<GameState>,
+    player_slots: Res<PlayerSlots>,
+    mut connection_manager: ResMut<ConnectionManager>,
+) {
+    // Always send updates when game state or player slots change
+    if !game_state.is_changed() && !player_slots.is_changed() {
+        return;
+    }
+    
+    // Count connected players
+    let player_count = match (player_slots.player1.is_some(), player_slots.player2.is_some()) {
+        (true, true) => 2,
+        (true, false) | (false, true) => 1,
+        (false, false) => 0,
+    };
+    
+    let update = boid_wars_shared::GameStateUpdate {
+        phase: game_state.phase.clone(),
+        player_count,
+        player1_ready: game_state.player1_ready,
+        player2_ready: game_state.player2_ready,
+    };
+    
+    // Send to all connected clients
+    if let Err(e) = connection_manager
+        .send_message_to_target::<boid_wars_shared::ReliableChannel, _>(
+            &update,
+            NetworkTarget::All,
+        ) {
+        warn!("Failed to send game state update: {:?}", e);
+    }
+}
+
+// Check if we should start the game
+fn check_start_game(
+    mut commands: Commands,
+    mut game_state: ResMut<GameState>,
+    mut player_slots: ResMut<PlayerSlots>,
+    physics_config: Res<PhysicsConfig>,
+) {
+    // Only check in lobby phase
+    if game_state.phase != boid_wars_shared::GamePhase::Lobby {
+        return;
+    }
+    
+    // Check if both players are ready
+    if !game_state.player1_ready || !game_state.player2_ready {
+        return;
+    }
+    
+    info!("Both players ready! Starting game...");
+    
+    // Spawn player 1
+    if let Some((client_id, ref mut entity)) = player_slots.player1.as_mut() {
+        let player_entity = spawn_player(
+            &mut commands,
+            &physics_config,
+            *client_id,
+            100.0, // spawn_x
+            100.0, // spawn_y
+            boid_wars_shared::PlayerNumber::Player1,
+        );
+        *entity = player_entity;
+    }
+    
+    // Spawn player 2
+    if let Some((client_id, ref mut entity)) = player_slots.player2.as_mut() {
+        let game_config = &*GAME_CONFIG;
+        let player_entity = spawn_player(
+            &mut commands,
+            &physics_config,
+            *client_id,
+            game_config.game_width - 100.0,  // spawn_x
+            game_config.game_height - 100.0, // spawn_y
+            boid_wars_shared::PlayerNumber::Player2,
+        );
+        *entity = player_entity;
+    }
+    
+    // Move to in-game phase
+    game_state.phase = boid_wars_shared::GamePhase::InGame;
+    info!("Game started!");
+}
+
+// Helper function to spawn a player
+fn spawn_player(
+    commands: &mut Commands,
+    physics_config: &PhysicsConfig,
+    client_id: ClientId,
+    spawn_x: f32,
+    spawn_y: f32,
+    player_number: boid_wars_shared::PlayerNumber,
+) -> Entity {
+    let game_config = &*GAME_CONFIG;
+    
+    let player_entity = commands
+        .spawn((
+            PlayerBundle::new(
+                client_id.to_bits(),
+                format!("Player {}", client_id.to_bits()),
+                spawn_x,
+                spawn_y,
+                player_number,
+            ),
+            // Networking
+            Replicate {
+                controlled_by: ControlledBy {
+                    target: NetworkTarget::Single(client_id),
+                    ..default()
+                },
+                ..default()
+            },
+        ))
+        .id();
+    
+    // Add physics components
+    commands.entity(player_entity).insert((
+        physics::Player {
+            player_id: client_id.to_bits(),
+            ..Default::default()
+        },
+        physics::PlayerInput::default(),
+        Ship::default(),
+        WeaponStats::default(),
+        boid_wars_shared::Health {
+            current: game_config.default_health,
+            max: game_config.default_health,
+        },
+    ));
+    
+    // Add physics body components
+    commands.entity(player_entity).insert((
+        RigidBody::Dynamic,
+        Collider::cuboid(
+            physics_config.player_collider_size,
+            physics_config.player_collider_size,
+        ),
+        GameCollisionGroups::player(),
+        physics::Velocity::zero(),
+        ExternalForce::default(),
+        ExternalImpulse::default(),
+        Transform::from_xyz(spawn_x, spawn_y, 0.0),
+        GlobalTransform::default(),
+        bevy_rapier2d::dynamics::GravityScale(0.0),
+        bevy_rapier2d::dynamics::Sleeping::disabled(),
+        bevy_rapier2d::dynamics::Damping {
+            linear_damping: 0.0,
+            angular_damping: 0.0,
+        },
+        bevy_rapier2d::dynamics::AdditionalMassProperties::Mass(1.0),
+        SyncPosition,
+    ));
+    
+    info!("Player spawned at ({}, {}) for client {:?}", spawn_x, spawn_y, client_id);
+    
+    player_entity
 }
