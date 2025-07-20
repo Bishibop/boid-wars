@@ -150,7 +150,7 @@ pub fn spawn_boid_group(
                 level: LODLevel::Near,
                 last_update: 0.0,
             },
-            Replicate::default(),
+            // No replication - groups are server-side only
         ))
         .id();
 
@@ -184,17 +184,17 @@ pub fn spawn_boid_group(
                 aggression_multiplier,
                 ..
             } => {
-                bundle.combat.damage *= aggression_multiplier;
-                bundle.combat.fire_rate *= 1.1; // Only slightly faster
+                bundle.combat_stats.damage *= aggression_multiplier;
+                bundle.combat_stats.fire_rate *= 1.1; // Only slightly faster
             }
             GroupArchetype::Defensive { .. } => {
                 bundle.health.max *= 1.5;
                 bundle.health.current = bundle.health.max;
-                bundle.combat.fire_rate *= 0.9; // Only slightly slower
+                bundle.combat_stats.fire_rate *= 0.9; // Only slightly slower
             }
             GroupArchetype::Recon { .. } => {
-                bundle.combat.aggression_range *= 1.5;
-                bundle.combat.fire_rate *= 0.8; // Recon shoots less often
+                bundle.combat_stats.aggression_range *= 1.5;
+                bundle.combat_stats.fire_rate *= 0.8; // Recon shoots less often
             }
         }
 

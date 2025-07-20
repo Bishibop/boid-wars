@@ -40,18 +40,17 @@ pub struct Boid {
     pub id: u32,
 }
 
-/// Combat capabilities for boids
+/// Static combat capabilities for boids (replicated once)
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct BoidCombat {
+pub struct BoidCombatStats {
     pub damage: f32,
     pub fire_rate: f32,
     pub projectile_speed: f32,
     pub aggression_range: f32,
     pub spread_angle: f32,
-    pub last_shot_time: f32,
 }
 
-impl Default for BoidCombat {
+impl Default for BoidCombatStats {
     fn default() -> Self {
         Self {
             damage: 5.0,             // Half of player damage
@@ -59,10 +58,24 @@ impl Default for BoidCombat {
             projectile_speed: 400.0, // Slower than player (600)
             aggression_range: 200.0, // Detect players within 200 units
             spread_angle: 0.087,     // ~5 degrees in radians (much more accurate)
+        }
+    }
+}
+
+/// Dynamic combat state for boids (server-only, not replicated)
+#[derive(Component, Clone, Debug)]
+pub struct BoidCombatState {
+    pub last_shot_time: f32,
+}
+
+impl Default for BoidCombatState {
+    fn default() -> Self {
+        Self {
             last_shot_time: 0.0,
         }
     }
 }
+
 
 /// Static obstacle component
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -331,7 +344,8 @@ pub struct BoidBundle {
     pub position: Position,
     pub velocity: Velocity,
     pub health: Health,
-    pub combat: BoidCombat,
+    pub combat_stats: BoidCombatStats,
+    pub combat_state: BoidCombatState,
 }
 
 impl BoidBundle {
@@ -341,7 +355,8 @@ impl BoidBundle {
             position: Position::new(x, y),
             velocity: Velocity::new(0.0, 0.0),
             health: Health::default(),
-            combat: BoidCombat::default(),
+            combat_stats: BoidCombatStats::default(),
+            combat_state: BoidCombatState::default(),
         }
     }
 }
@@ -363,21 +378,20 @@ impl Plugin for ProtocolPlugin {
         app.register_type::<PlayerInput>();
 
         // Register components for replication using correct Lightyear 0.20 API
-        // Only register basic replication for now - no interpolation to avoid missing function errors
-        app.register_component::<Position>(ChannelDirection::Bidirectional);
-        app.register_component::<Rotation>(ChannelDirection::Bidirectional);
-        app.register_component::<Velocity>(ChannelDirection::Bidirectional);
+        // Server-authoritative components (unidirectional to save bandwidth)
+        app.register_component::<Position>(ChannelDirection::ServerToClient);
+        app.register_component::<Rotation>(ChannelDirection::ServerToClient);
+        app.register_component::<Velocity>(ChannelDirection::ServerToClient);
         app.register_component::<Health>(ChannelDirection::ServerToClient);
         app.register_component::<Player>(ChannelDirection::ServerToClient);
         app.register_component::<Boid>(ChannelDirection::ServerToClient);
-        app.register_component::<BoidCombat>(ChannelDirection::ServerToClient);
+        app.register_component::<BoidCombatStats>(ChannelDirection::ServerToClient);
+        // BoidCombatState is server-only and not registered for replication
         app.register_component::<Obstacle>(ChannelDirection::ServerToClient);
         app.register_component::<Projectile>(ChannelDirection::ServerToClient);
         
-        // Register group system components
-        app.register_component::<BoidGroup>(ChannelDirection::ServerToClient);
-        app.register_component::<ReplicatedGroup>(ChannelDirection::ServerToClient);
-        app.register_component::<GroupVelocity>(ChannelDirection::ServerToClient);
+        // Group system components - NOT replicated to save bandwidth
+        // Groups are server-side only for AI coordination
 
         // Register PlayerInput as message (not input plugin)
         app.register_message::<PlayerInput>(ChannelDirection::ClientToServer);

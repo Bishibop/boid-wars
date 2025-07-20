@@ -125,7 +125,7 @@ fn group_target_selection(
 /// Coordinate combat for groups
 fn group_combat_coordinator(
     mut groups: Query<(&mut BoidGroup, &Position)>,
-    mut boids: Query<(Entity, &BoidGroupMember, &mut BoidCombat, &Position), With<Boid>>,
+    mut boids: Query<(Entity, &BoidGroupMember, &mut BoidCombatStats, &Position), With<Boid>>,
     players: Query<(&Position, &Player), Without<Boid>>,
 ) {
     for (mut group, _) in groups.iter_mut() {
@@ -138,21 +138,21 @@ fn group_combat_coordinator(
                 update_active_shooters(&mut group, &boids, target_pos.0);
 
                 // Update combat state for all group members
-                for (entity, member, mut combat, _) in boids.iter_mut() {
+                for (entity, member, mut combat_stats, _) in boids.iter_mut() {
                     if member.group_id == group.id {
                         if group.active_shooters.contains(&entity) {
                             // Active shooter - enable combat with very slow fire rate
-                            // Don't reset last_shot_time - let natural cooldown happen
+                            // Note: last_shot_time is now in BoidCombatState (server-only)
 
                             // Adjust fire rate based on role (much slower rates)
-                            combat.fire_rate = match member.role_in_group {
+                            combat_stats.fire_rate = match member.role_in_group {
                                 BoidRole::Leader => 0.15,  // 1 shot every ~6.7 seconds
                                 BoidRole::Flanker => 0.12, // 1 shot every ~8.3 seconds
                                 _ => 0.1,                  // 1 shot every 10 seconds
                             };
                         } else {
                             // Non-shooter - disable combat by setting very low fire rate
-                            combat.fire_rate = 0.01; // 1 shot every 100 seconds (effectively never)
+                            combat_stats.fire_rate = 0.01; // 1 shot every 100 seconds (effectively never)
                         }
                     }
                 }
@@ -167,7 +167,7 @@ fn group_combat_coordinator(
 /// Update the set of active shooters for a group
 fn update_active_shooters(
     group: &mut BoidGroup,
-    boids: &Query<(Entity, &BoidGroupMember, &mut BoidCombat, &Position), With<Boid>>,
+    boids: &Query<(Entity, &BoidGroupMember, &mut BoidCombatStats, &Position), With<Boid>>,
     target_pos: Vec2,
 ) {
     // Get all eligible shooters

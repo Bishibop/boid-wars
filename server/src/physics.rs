@@ -243,8 +243,11 @@ impl BoidAggression {
 // Re-export for convenience
 pub use bevy_rapier2d::prelude::{
     ActiveEvents, Collider, CollisionEvent, ExternalForce, ExternalImpulse,
-    RapierDebugRenderPlugin, RapierPhysicsPlugin, RigidBody, Sensor, Velocity,
+    RapierPhysicsPlugin, RigidBody, Sensor, Velocity,
 };
+
+#[cfg(debug_assertions)]
+pub use bevy_rapier2d::prelude::RapierDebugRenderPlugin;
 
 /// System sets for explicit ordering
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -277,8 +280,13 @@ impl Plugin for PhysicsPlugin {
 
         app
             // Add Rapier2D physics plugin with no gravity for top-down space game
-            .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
-            .add_plugins(RapierDebugRenderPlugin::default())
+            .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0));
+        
+        // Only add debug render plugin in debug builds
+        #[cfg(debug_assertions)]
+        app.add_plugins(RapierDebugRenderPlugin::default());
+        
+        app
             // Add configuration resources
             .insert_resource(physics_config)
             .init_resource::<MonitoringConfig>()
@@ -1052,7 +1060,8 @@ fn boid_shooting_system(
         (
             Entity,
             &Transform,
-            &mut boid_wars_shared::BoidCombat,
+            &boid_wars_shared::BoidCombatStats,
+            &mut boid_wars_shared::BoidCombatState,
             &boid_wars_shared::Position,
         ),
         With<boid_wars_shared::Boid>,
@@ -1067,13 +1076,13 @@ fn boid_shooting_system(
     use rand::Rng;
     let mut rng = rand::thread_rng();
 
-    for (boid_entity, transform, mut combat, boid_pos) in boid_query.iter_mut() {
+    for (boid_entity, transform, combat_stats, mut combat_state, boid_pos) in boid_query.iter_mut() {
         // Update shooting timer
-        combat.last_shot_time += time.delta_secs();
+        combat_state.last_shot_time += time.delta_secs();
 
         // Check if boid can shoot (cooldown finished)
-        let cooldown_time = 1.0 / combat.fire_rate; // Convert fire rate to cooldown
-        if combat.last_shot_time < cooldown_time {
+        let cooldown_time = 1.0 / combat_stats.fire_rate; // Convert fire rate to cooldown
+        if combat_state.last_shot_time < cooldown_time {
             continue;
         }
 
@@ -1084,16 +1093,16 @@ fn boid_shooting_system(
             &player_query,
             &boid_aggression,
             &spatial_grid,
-            combat.aggression_range,
+            combat_stats.aggression_range,
         );
 
         if let Some(target_position) = target_pos {
             // Reset shooting timer
-            combat.last_shot_time = 0.0;
+            combat_state.last_shot_time = 0.0;
 
             // Calculate aim direction with spread
             let base_direction = (target_position - boid_pos.0).normalize();
-            let spread_angle = rng.gen_range(-combat.spread_angle..combat.spread_angle);
+            let spread_angle = rng.gen_range(-combat_stats.spread_angle..combat_stats.spread_angle);
             let rotation = std::f32::consts::PI * spread_angle;
             let cos_rot = rotation.cos();
             let sin_rot = rotation.sin();
@@ -1108,14 +1117,14 @@ fn boid_shooting_system(
             let spawn_offset = config.projectile_spawn_offset;
             let projectile_spawn_pos =
                 transform.translation.truncate() + aim_direction * spawn_offset;
-            let projectile_velocity = aim_direction * combat.projectile_speed;
+            let projectile_velocity = aim_direction * combat_stats.projectile_speed;
 
             // Try to get a projectile from the boid pool
             let projectile_entity = if let Some(pooled_handle) = boid_pool.acquire() {
                 // Update existing projectile components
                 commands.entity(pooled_handle.entity).insert((
                     Projectile {
-                        damage: combat.damage,
+                        damage: combat_stats.damage,
                         owner: Some(boid_entity),
                         projectile_type: ProjectileType::Basic,
                         lifetime: {
@@ -1123,7 +1132,7 @@ fn boid_shooting_system(
                             timer.unpause();
                             timer
                         },
-                        speed: combat.projectile_speed,
+                        speed: combat_stats.projectile_speed,
                     },
                     ProjectilePhysics {
                         velocity: projectile_velocity,
@@ -1145,11 +1154,11 @@ fn boid_shooting_system(
                 commands
                     .spawn((
                         Projectile {
-                            damage: combat.damage,
+                            damage: combat_stats.damage,
                             owner: Some(boid_entity),
                             projectile_type: ProjectileType::Basic,
                             lifetime: Timer::new(Duration::from_secs(2), TimerMode::Once),
-                            speed: combat.projectile_speed,
+                            speed: combat_stats.projectile_speed,
                         },
                         ProjectilePhysics {
                             velocity: projectile_velocity,
@@ -1174,7 +1183,7 @@ fn boid_shooting_system(
             commands.entity(projectile_entity).insert((
                 boid_wars_shared::Projectile {
                     id: projectile_entity.index(),
-                    damage: combat.damage,
+                    damage: combat_stats.damage,
                     owner_id: boid_entity.index() as u64, // Use boid entity as owner
                 },
                 boid_wars_shared::Position(projectile_spawn_pos),
