@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use bevy::app::PluginGroupBuilder;
+use bevy::prelude::*;
 use boid_wars_shared::*;
 use lightyear::connection::id::ClientId;
 use lightyear::prelude::server::*;
@@ -45,7 +45,7 @@ fn get_base_plugins() -> PluginGroupBuilder {
             ..default()
         })
     }
-    
+
     #[cfg(not(debug_assertions))]
     {
         // In release mode, use DefaultPlugins but disable windowing
@@ -56,16 +56,26 @@ fn get_base_plugins() -> PluginGroupBuilder {
 fn main() {
     // Initialize logging first
     tracing_subscriber::fmt::init();
-    
+
     info!("🚀 Starting Boid Wars server...");
-    info!("🔧 Bevy plugins: {}", if cfg!(debug_assertions) { "DefaultPlugins (debug)" } else { "DefaultPlugins (headless)" });
+    info!(
+        "🔧 Bevy plugins: {}",
+        if cfg!(debug_assertions) {
+            "DefaultPlugins (debug)"
+        } else {
+            "DefaultPlugins (headless)"
+        }
+    );
 
     // Load configuration
     let network_config = &*NETWORK_CONFIG;
     let game_config = &*GAME_CONFIG;
 
     // Configure server address
-    info!("📡 Parsing server bind address: {}", network_config.server_bind_addr);
+    info!(
+        "📡 Parsing server bind address: {}",
+        network_config.server_bind_addr
+    );
     let server_addr: SocketAddr = network_config
         .server_bind_addr
         .parse()
@@ -75,19 +85,19 @@ fn main() {
         "🌐 Server will listen on {} | Game area: {}x{}",
         server_addr, game_config.game_width, game_config.game_height
     );
-    
+
     info!("🎯 Protocol ID: {}", network_config.protocol_id);
 
     // Create server config
     info!("⚙️  Creating Lightyear server configuration...");
     let lightyear_config = create_websocket_config(server_addr, network_config);
-    
+
     info!("🎮 Building Bevy app with plugins...");
     let mut app = App::new();
-    
+
     info!("🔌 Adding base plugins...");
     app.add_plugins(get_base_plugins());
-    
+
     info!("🔌 Adding game plugins...");
     app.add_plugins(DebugUIPlugin)
         .add_plugins(ServerPlugins::new(lightyear_config))
@@ -99,7 +109,7 @@ fn main() {
         .add_plugins(flocking::FlockingPlugin) // Add flocking behavior
         .add_plugins(groups::BoidGroupPlugin)
         .add_plugins(BoidWarsServerPlugin);
-    
+
     info!("🚀 Starting Bevy app...");
     app.run();
 }
@@ -161,7 +171,7 @@ impl Plugin for BoidWarsServerPlugin {
 
 fn setup_server(mut commands: Commands) {
     info!("🌐 Starting Lightyear server...");
-    
+
     // Start the Lightyear server
     commands.queue(|world: &mut World| {
         world.start_server();
@@ -173,7 +183,7 @@ fn setup_server(mut commands: Commands) {
         5.0, // Default status log interval
         TimerMode::Repeating,
     )));
-    
+
     info!("⏰ Status timer configured (5s intervals)");
 
     // Initialize player slots
@@ -209,7 +219,7 @@ fn spawn_boid_flock(commands: &mut Commands, physics_config: &PhysicsConfig) {
     let mut spawned_groups = 0;
 
     // Create a simple territory for testing (no complex generation)
-    let simple_territory = TerritoryData {
+    let _simple_territory = TerritoryData {
         center: Vec2::new(300.0, 300.0), // Just place it in the arena
         radius: 100.0,
         zone: ArenaZone::Outer,
@@ -242,16 +252,16 @@ fn spawn_boid_flock(commands: &mut Commands, physics_config: &PhysicsConfig) {
     // New Patrol group for 2v2 gameplay
     let patrol_territory = TerritoryData {
         center: Vec2::new(450.0, 400.0), // Arena center for balanced coverage
-        radius: 350.0, // Large radius for arena-wide patrol
+        radius: 350.0,                   // Large radius for arena-wide patrol
         zone: ArenaZone::Outer,
         patrol_points: vec![
             // Strategic waypoints around arena perimeter and center
-            Vec2::new(200.0, 200.0),   // Top-left area
-            Vec2::new(700.0, 200.0),   // Top-right area  
-            Vec2::new(800.0, 400.0),   // Right-center
-            Vec2::new(700.0, 600.0),   // Bottom-right
-            Vec2::new(200.0, 600.0),   // Bottom-left
-            Vec2::new(100.0, 400.0),   // Left-center
+            Vec2::new(200.0, 200.0), // Top-left area
+            Vec2::new(700.0, 200.0), // Top-right area
+            Vec2::new(800.0, 400.0), // Right-center
+            Vec2::new(700.0, 600.0), // Bottom-right
+            Vec2::new(200.0, 600.0), // Bottom-left
+            Vec2::new(100.0, 400.0), // Left-center
         ],
         neighboring_territories: vec![],
     };
@@ -351,7 +361,10 @@ fn handle_connections(
             (PlayerNumber::Player1, game_config.spawn_x)
         } else if player_slots.player2.is_none() {
             // Assign as Player2 with different spawn position
-            (PlayerNumber::Player2, game_config.spawn_x + PLAYER_2_SPAWN_OFFSET)
+            (
+                PlayerNumber::Player2,
+                game_config.spawn_x + PLAYER_2_SPAWN_OFFSET,
+            )
         } else {
             // Server is full - reject connection
             info!("Server full: rejecting client {:?}", client_id);

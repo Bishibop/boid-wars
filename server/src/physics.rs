@@ -244,8 +244,8 @@ impl BoidAggression {
 
 // Re-export for convenience
 pub use bevy_rapier2d::prelude::{
-    ActiveEvents, Collider, CollisionEvent, ExternalForce, ExternalImpulse,
-    RapierPhysicsPlugin, RigidBody, Sensor, Velocity,
+    ActiveEvents, Collider, CollisionEvent, ExternalForce, ExternalImpulse, RapierPhysicsPlugin,
+    RigidBody, Sensor, Velocity,
 };
 
 #[cfg(debug_assertions)]
@@ -720,6 +720,7 @@ fn setup_boid_projectile_pool(
 /// Setup the arena with walls - using top-left origin like network coordinates
 fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
     let collision_groups = GameCollisionGroups::default();
+    let mut wall_id = 1000; // Start wall IDs at 1000 to avoid conflicts
 
     // Top wall (y = 0)
     commands.spawn((
@@ -730,9 +731,23 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
             -arena_config.wall_thickness / 2.0,
             0.0,
         ),
+        GlobalTransform::default(),
         bevy_rapier2d::geometry::CollisionGroups::new(collision_groups.walls, Group::ALL),
         Name::new(TOP_WALL_NAME),
+        // Network components for invisible walls
+        boid_wars_shared::Position(Vec2::new(
+            arena_config.width / 2.0,
+            -arena_config.wall_thickness / 2.0,
+        )),
+        boid_wars_shared::Obstacle {
+            id: wall_id,
+            width: arena_config.width,
+            height: arena_config.wall_thickness,
+        },
+        lightyear::prelude::server::Replicate::default(),
+        SyncPosition,
     ));
+    wall_id += 1;
 
     // Bottom wall (y = height)
     commands.spawn((
@@ -743,9 +758,23 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
             arena_config.height + arena_config.wall_thickness / 2.0,
             0.0,
         ),
+        GlobalTransform::default(),
         bevy_rapier2d::geometry::CollisionGroups::new(collision_groups.walls, Group::ALL),
         Name::new(BOTTOM_WALL_NAME),
+        // Network components for invisible walls
+        boid_wars_shared::Position(Vec2::new(
+            arena_config.width / 2.0,
+            arena_config.height + arena_config.wall_thickness / 2.0,
+        )),
+        boid_wars_shared::Obstacle {
+            id: wall_id,
+            width: arena_config.width,
+            height: arena_config.wall_thickness,
+        },
+        lightyear::prelude::server::Replicate::default(),
+        SyncPosition,
     ));
+    wall_id += 1;
 
     // Left wall (x = 0)
     commands.spawn((
@@ -756,9 +785,23 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
             arena_config.height / 2.0,
             0.0,
         ),
+        GlobalTransform::default(),
         bevy_rapier2d::geometry::CollisionGroups::new(collision_groups.walls, Group::ALL),
         Name::new(LEFT_WALL_NAME),
+        // Network components for invisible walls
+        boid_wars_shared::Position(Vec2::new(
+            -arena_config.wall_thickness / 2.0,
+            arena_config.height / 2.0,
+        )),
+        boid_wars_shared::Obstacle {
+            id: wall_id,
+            width: arena_config.wall_thickness,
+            height: arena_config.height,
+        },
+        lightyear::prelude::server::Replicate::default(),
+        SyncPosition,
     ));
+    wall_id += 1;
 
     // Right wall (x = width)
     commands.spawn((
@@ -769,8 +812,21 @@ fn setup_arena(mut commands: Commands, arena_config: Res<ArenaConfig>) {
             arena_config.height / 2.0,
             0.0,
         ),
+        GlobalTransform::default(),
         bevy_rapier2d::geometry::CollisionGroups::new(collision_groups.walls, Group::ALL),
         Name::new(RIGHT_WALL_NAME),
+        // Network components for invisible walls
+        boid_wars_shared::Position(Vec2::new(
+            arena_config.width + arena_config.wall_thickness / 2.0,
+            arena_config.height / 2.0,
+        )),
+        boid_wars_shared::Obstacle {
+            id: wall_id,
+            width: arena_config.wall_thickness,
+            height: arena_config.height,
+        },
+        lightyear::prelude::server::Replicate::default(),
+        SyncPosition,
     ));
 }
 
@@ -972,7 +1028,7 @@ fn shooting_system(
 
             // Generate unique network ID for this projectile
             let network_id = id_generator.next();
-            
+
             // Try to get a projectile from the pool
             let _projectile_entity = if let Some(pooled_handle) = pool.acquire() {
                 let _status = pool.status();
@@ -1047,13 +1103,15 @@ fn shooting_system(
                 damage: weapon.damage,
                 is_boid_projectile: false,
             };
-            
-            connection_manager.send_message_to_target::<boid_wars_shared::ReliableChannel, _>(
-                &spawn_event,
-                NetworkTarget::All,
-            ).unwrap_or_else(|e| {
-                warn!("Failed to send projectile spawn event: {:?}", e);
-            });
+
+            connection_manager
+                .send_message_to_target::<boid_wars_shared::ReliableChannel, _>(
+                    &spawn_event,
+                    NetworkTarget::All,
+                )
+                .unwrap_or_else(|e| {
+                    warn!("Failed to send projectile spawn event: {:?}", e);
+                });
         }
     }
 }
@@ -1084,7 +1142,8 @@ fn boid_shooting_system(
     use rand::Rng;
     let mut rng = rand::thread_rng();
 
-    for (boid_entity, transform, combat_stats, mut combat_state, boid_pos) in boid_query.iter_mut() {
+    for (boid_entity, transform, combat_stats, mut combat_state, boid_pos) in boid_query.iter_mut()
+    {
         // Update shooting timer
         combat_state.last_shot_time += time.delta_secs();
 
@@ -1194,13 +1253,15 @@ fn boid_shooting_system(
                 damage: combat_stats.damage,
                 is_boid_projectile: true,
             };
-            
-            connection_manager.send_message_to_target::<boid_wars_shared::ReliableChannel, _>(
-                &spawn_event,
-                NetworkTarget::All,
-            ).unwrap_or_else(|e| {
-                warn!("Failed to send boid projectile spawn event: {:?}", e);
-            });
+
+            connection_manager
+                .send_message_to_target::<boid_wars_shared::ReliableChannel, _>(
+                    &spawn_event,
+                    NetworkTarget::All,
+                )
+                .unwrap_or_else(|e| {
+                    warn!("Failed to send boid projectile spawn event: {:?}", e);
+                });
         }
     }
 }
@@ -1412,9 +1473,11 @@ fn collision_system(
             // Hit a player - apply damage to Health component
             let old_health = health.current;
             health.current = (health.current - damage).max(0.0);
-            info!("Player {:?} took damage: {} -> {} (damage: {})", 
-                player_entity, old_health, health.current, damage);
-            
+            info!(
+                "Player {:?} took damage: {} -> {} (damage: {})",
+                player_entity, old_health, health.current, damage
+            );
+
             if health.current <= 0.0 {
                 handle_player_death(&mut commands, player_entity);
             }
@@ -1510,13 +1573,15 @@ fn return_projectiles_to_pool(
             // Send despawn event if this projectile has a network ID
             if let Some(ProjectileNetworkId(id)) = network_id {
                 let despawn_event = boid_wars_shared::ProjectileDespawnEvent { id: *id };
-                
-                connection_manager.send_message_to_target::<boid_wars_shared::ReliableChannel, _>(
-                    &despawn_event,
-                    NetworkTarget::All,
-                ).unwrap_or_else(|e| {
-                    warn!("Failed to send projectile despawn event: {:?}", e);
-                });
+
+                connection_manager
+                    .send_message_to_target::<boid_wars_shared::ReliableChannel, _>(
+                        &despawn_event,
+                        NetworkTarget::All,
+                    )
+                    .unwrap_or_else(|e| {
+                        warn!("Failed to send projectile despawn event: {:?}", e);
+                    });
             }
             // Only process pooled projectiles
             if let Some(PooledProjectile(pooled_handle)) = pooled {
@@ -1551,7 +1616,7 @@ fn return_projectiles_to_pool(
                 if let Ok(mut entity_commands) = commands.get_entity(entity) {
                     // Remove the network ID component
                     entity_commands.remove::<ProjectileNetworkId>();
-                    
+
                     // Remove old network components (if any still exist)
                     entity_commands.remove::<boid_wars_shared::Projectile>();
                     entity_commands.remove::<boid_wars_shared::Position>();
@@ -1771,7 +1836,6 @@ pub fn spawn_ai_player(
 
     entity
 }
-
 
 /// System to clean up expired player aggression entries
 fn cleanup_player_aggression(mut player_aggression: ResMut<PlayerAggression>) {

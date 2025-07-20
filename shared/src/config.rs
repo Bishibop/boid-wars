@@ -41,13 +41,13 @@ impl Default for GameConfig {
     fn default() -> Self {
         Self {
             game_width: env::var("BOID_WARS_GAME_WIDTH")
+                .unwrap_or_else(|_| "1600.0".to_string())
+                .parse()
+                .unwrap_or(1600.0),
+            game_height: env::var("BOID_WARS_GAME_HEIGHT")
                 .unwrap_or_else(|_| "1200.0".to_string())
                 .parse()
                 .unwrap_or(1200.0),
-            game_height: env::var("BOID_WARS_GAME_HEIGHT")
-                .unwrap_or_else(|_| "900.0".to_string())
-                .parse()
-                .unwrap_or(900.0),
             player_speed: env::var("BOID_WARS_PLAYER_SPEED")
                 .unwrap_or_else(|_| "200.0".to_string())
                 .parse()
@@ -61,13 +61,13 @@ impl Default for GameConfig {
                 .parse()
                 .unwrap_or(100.0),
             spawn_x: env::var("BOID_WARS_SPAWN_X")
+                .unwrap_or_else(|_| "800.0".to_string())
+                .parse()
+                .unwrap_or(800.0),
+            spawn_y: env::var("BOID_WARS_SPAWN_Y")
                 .unwrap_or_else(|_| "600.0".to_string())
                 .parse()
                 .unwrap_or(600.0),
-            spawn_y: env::var("BOID_WARS_SPAWN_Y")
-                .unwrap_or_else(|_| "450.0".to_string())
-                .parse()
-                .unwrap_or(450.0),
         }
     }
 }

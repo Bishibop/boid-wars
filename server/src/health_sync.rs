@@ -26,22 +26,23 @@ pub fn detect_health_changes(
     for (entity, health, player, boid) in health_query.iter() {
         let current = health.current;
         let max = health.max;
-        
+
         // Check if this is a significant change
-        let should_send = if let Some(&(prev_current, prev_max)) = health_tracker.previous_health.get(&entity) {
-            // Send if health changed by more than 0.1 or max health changed
-            (prev_current - current).abs() > 0.1 || (prev_max - max).abs() > 0.01
-        } else {
-            // First time seeing this entity, always send
-            true
-        };
+        let should_send =
+            if let Some(&(prev_current, prev_max)) = health_tracker.previous_health.get(&entity) {
+                // Send if health changed by more than 0.1 or max health changed
+                (prev_current - current).abs() > 0.1 || (prev_max - max).abs() > 0.01
+            } else {
+                // First time seeing this entity, always send
+                true
+            };
 
         if should_send {
             // Determine entity ID for the event
             let entity_id = if let Some(player) = player {
-                player.id  // No cast needed, already u64
+                player.id // No cast needed, already u64
             } else if let Some(boid) = boid {
-                boid.id as u64  // Cast u32 to u64 for boids
+                boid.id as u64 // Cast u32 to u64 for boids
             } else {
                 // Skip entities without proper IDs
                 continue;
@@ -53,18 +54,20 @@ pub fn detect_health_changes(
                 new_health: current,
                 max_health: max,
             };
-            
-            info!("Sending health change event - entity: {:?}, id: {} (full u64), health: {}/{}", 
-                entity, entity_id, current, max);
 
-            // Send to all connected clients
-            let _ = connection.send_message_to_target::<ReliableChannel, _>(
-                &event,
-                NetworkTarget::All,
+            info!(
+                "Sending health change event - entity: {:?}, id: {} (full u64), health: {}/{}",
+                entity, entity_id, current, max
             );
 
+            // Send to all connected clients
+            let _ =
+                connection.send_message_to_target::<ReliableChannel, _>(&event, NetworkTarget::All);
+
             // Update tracker
-            health_tracker.previous_health.insert(entity, (current, max));
+            health_tracker
+                .previous_health
+                .insert(entity, (current, max));
         }
     }
 }
@@ -78,9 +81,9 @@ pub fn send_initial_health(
     for (entity, health, player, boid) in new_entities.iter() {
         // Determine entity ID
         let entity_id = if let Some(player) = player {
-            player.id  // No cast needed, already u64
+            player.id // No cast needed, already u64
         } else if let Some(boid) = boid {
-            boid.id as u64  // Cast u32 to u64 for boids
+            boid.id as u64 // Cast u32 to u64 for boids
         } else {
             continue;
         };
@@ -92,13 +95,12 @@ pub fn send_initial_health(
             max_health: health.max,
         };
 
-        let _ = connection.send_message_to_target::<ReliableChannel, _>(
-            &event,
-            NetworkTarget::All,
-        );
+        let _ = connection.send_message_to_target::<ReliableChannel, _>(&event, NetworkTarget::All);
 
         // Track the initial state
-        health_tracker.previous_health.insert(entity, (health.current, health.max));
+        health_tracker
+            .previous_health
+            .insert(entity, (health.current, health.max));
     }
 }
 
@@ -108,13 +110,6 @@ pub struct HealthSyncPlugin;
 impl Plugin for HealthSyncPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HealthTracker>()
-            .add_systems(
-                Update,
-                (
-                    send_initial_health,
-                    detect_health_changes,
-                )
-                    .chain(),
-            );
+            .add_systems(Update, (send_initial_health, detect_health_changes).chain());
     }
 }

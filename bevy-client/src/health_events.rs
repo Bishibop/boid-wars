@@ -13,13 +13,14 @@ pub fn handle_health_change_events(
 ) {
     for message_event in message_events.read() {
         let event = &message_event.message;
-        
+
         // Try to find the entity by ID
         let mut found = false;
-        
+
         // Check players
         for (entity, player) in players.iter() {
-            if player.id == event.entity_id {  // No cast needed, both are u64 now
+            if player.id == event.entity_id {
+                // No cast needed, both are u64 now
                 if let Ok(mut health) = player_query.get_mut(entity) {
                     health.current = event.new_health;
                     health.max = event.max_health;
@@ -28,11 +29,12 @@ pub fn handle_health_change_events(
                 }
             }
         }
-        
+
         // If not a player, check boids
         if !found {
             for (entity, boid) in boids.iter() {
-                if boid.id as u64 == event.entity_id {  // Cast boid.id (u32) to u64 for comparison
+                if boid.id as u64 == event.entity_id {
+                    // Cast boid.id (u32) to u64 for comparison
                     if let Ok(mut health) = boid_query.get_mut(entity) {
                         health.current = event.new_health;
                         health.max = event.max_health;
@@ -50,7 +52,7 @@ pub fn handle_health_change_events(
                 }
             }
         }
-        
+
         if !found {
             // This can happen if the entity hasn't been spawned on the client yet
             // This is normal due to network latency

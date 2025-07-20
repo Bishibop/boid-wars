@@ -1,9 +1,9 @@
 use bevy::asset::AssetMetaCheck;
 use bevy::prelude::*;
 use boid_wars_shared::*;
+use lightyear::client::message::ReceiveMessage;
 use lightyear::prelude::client::*;
 use lightyear::prelude::SharedConfig;
-use lightyear::client::message::ReceiveMessage;
 use std::net::SocketAddr;
 use tracing::{info, warn};
 use wasm_bindgen::prelude::*;
@@ -82,15 +82,15 @@ impl ProjectileSpritePool {
             max_size,
         }
     }
-    
+
     fn get(&mut self) -> Option<Entity> {
         self.available.pop()
     }
-    
+
     fn return_entity(&mut self, entity: Entity) {
         self.available.push(entity);
     }
-    
+
     fn is_full(&self) -> bool {
         self.active.len() + self.available.len() >= self.max_size
     }
@@ -148,7 +148,7 @@ pub fn run() {
 
     // Add shared protocol
     app.add_plugins(ProtocolPlugin);
-    
+
     // Add health events handling
     app.add_plugins(HealthEventsPlugin);
 
@@ -164,7 +164,7 @@ pub fn run() {
 
     // Initialize client projectile tracker
     app.init_resource::<ClientProjectileTracker>();
-    
+
     // Initialize projectile sprite pool
     app.insert_resource(ProjectileSpritePool::new(500)); // Match server pool size
 
@@ -205,33 +205,43 @@ pub fn run() {
 /// Create Lightyear client configuration
 fn create_client_config() -> (lightyear::prelude::client::ClientConfig, u64) {
     let network_config = &*NETWORK_CONFIG;
-    
+
     // Dynamically construct WebSocket URL based on environment and page protocol
     let server_addr: SocketAddr = if cfg!(debug_assertions) {
         // Development: always use localhost with ws://
-        "127.0.0.1:8080".parse().expect("Failed to parse dev address")
+        "127.0.0.1:8080"
+            .parse()
+            .expect("Failed to parse dev address")
     } else {
         // Production: construct address using page's host and port
         let window = web_sys::window().expect("Should have window");
         let location = window.location();
-        
-        let host = location.hostname()
+
+        let host = location
+            .hostname()
             .unwrap_or_else(|_| "boid-wars.fly.dev".to_string());
-            
-        let protocol = location.protocol()
-            .unwrap_or_else(|_| "https:".to_string());
-            
+
+        let protocol = location.protocol().unwrap_or_else(|_| "https:".to_string());
+
         // Get the current page's port, or use standard ports
-        let port = location.port()
+        let port = location
+            .port()
             .ok()
             .and_then(|p| if p.is_empty() { None } else { Some(p) })
             .unwrap_or_else(|| {
                 // If no port specified, use standard ports
-                if protocol == "https:" { "443".to_string() } else { "80".to_string() }
+                if protocol == "https:" {
+                    "443".to_string()
+                } else {
+                    "80".to_string()
+                }
             });
-            
-        info!("🔗 Detected page protocol: {}, host: {}, port: {}", protocol, host, port);
-        
+
+        info!(
+            "🔗 Detected page protocol: {}, host: {}, port: {}",
+            protocol, host, port
+        );
+
         // Try to parse the current host with detected port
         // If it fails, fall back to dummy IP (browser will use page host anyway)
         format!("{}:{}", host, port)
@@ -252,7 +262,8 @@ fn create_client_config() -> (lightyear::prelude::client::ClientConfig, u64) {
 
     // Use Netcode auth with matching key and protocol
     // Generate a unique client ID with full timestamp + large random component to minimize collision risk
-    let client_id = (js_sys::Date::now() as u64) * 10000 + (js_sys::Math::random() * 10000.0) as u64;
+    let client_id =
+        (js_sys::Date::now() as u64) * 10000 + (js_sys::Math::random() * 10000.0) as u64;
 
     let net_config = NetConfig::Netcode {
         config: NetcodeConfig::default(),
@@ -275,10 +286,9 @@ fn create_client_config() -> (lightyear::prelude::client::ClientConfig, u64) {
         prediction: Default::default(),
         sync: Default::default(),
     };
-    
+
     (config, client_id)
 }
-
 
 /// Check if WebP is supported by the browser
 fn supports_webp() -> bool {
@@ -305,7 +315,11 @@ fn supports_webp() -> bool {
 /// Load image with WebP fallback to PNG
 fn load_image_with_fallback(asset_server: &AssetServer, path: &str) -> Handle<Image> {
     let extension = if supports_webp() { "webp" } else { "png" };
-    let full_path = format!("{}.{}", path.trim_end_matches(".png").trim_end_matches(".webp"), extension);
+    let full_path = format!(
+        "{}.{}",
+        path.trim_end_matches(".png").trim_end_matches(".webp"),
+        extension
+    );
     asset_server.load(full_path)
 }
 
@@ -336,7 +350,8 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     let center_y = game_config.game_height * 0.5;
 
     // Load starfield background (behind everything)
-    let starfield_texture = load_image_with_fallback(&asset_server, "backgrounds/starfield_background");
+    let starfield_texture =
+        load_image_with_fallback(&asset_server, "backgrounds/starfield_background");
     commands.spawn((
         Sprite {
             image: starfield_texture,
@@ -356,7 +371,7 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
         Transform::from_translation(Vec3::new(
             center_x + (game_config.game_width * 0.3),  // 30% right
             center_y - (game_config.game_height * 0.3), // 30% down
-            1.0  // On top of starfield but behind game entities
+            1.0, // On top of starfield but behind game entities
         )),
     ));
 
@@ -379,32 +394,37 @@ fn setup_projectile_pool(
     projectile_sprite: Res<ProjectileSprite>,
 ) {
     info!("Pre-allocating projectile pool with 100 entities...");
-    
+
     // Store the sprite texture in the pool
     pool.sprite_texture = projectile_sprite.0.clone();
-    
+
     // Pre-allocate 100 projectile entities
     for _ in 0..100 {
-        let entity = commands.spawn((
-            ClientProjectile {
-                network_id: 0,
-                velocity: Vec2::ZERO,
-                owner_id: 0,
-                is_boid_projectile: false,
-            },
-            Sprite {
-                image: projectile_sprite.0.clone(),
-                custom_size: Some(Vec2::splat(PROJECTILE_SPRITE_SIZE)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(-1000.0, -1000.0, 14.0)), // Off-screen
-            Visibility::Hidden, // Hidden by default
-        )).id();
-        
+        let entity = commands
+            .spawn((
+                ClientProjectile {
+                    network_id: 0,
+                    velocity: Vec2::ZERO,
+                    owner_id: 0,
+                    is_boid_projectile: false,
+                },
+                Sprite {
+                    image: projectile_sprite.0.clone(),
+                    custom_size: Some(Vec2::splat(PROJECTILE_SPRITE_SIZE)),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(-1000.0, -1000.0, 14.0)), // Off-screen
+                Visibility::Hidden,                                             // Hidden by default
+            ))
+            .id();
+
         pool.available.push(entity);
     }
-    
-    info!("Projectile pool initialized with {} entities", pool.available.len());
+
+    info!(
+        "Projectile pool initialized with {} entities",
+        pool.available.len()
+    );
 }
 
 /// Performance monitoring timer resource
@@ -414,7 +434,6 @@ struct PerformanceTimer(Timer);
 /// Resource to store local client ID
 #[derive(Resource)]
 struct MyClientId(u64);
-
 
 /// Resource to hold player sprite texture
 #[derive(Resource)]
@@ -458,7 +477,6 @@ struct CollisionOutline {
     entity: Entity,  // The entity this outline belongs to
     is_player: bool, // true for player, false for boid
 }
-
 
 /// Simple performance monitoring system
 fn performance_monitor(
@@ -588,7 +606,7 @@ fn render_networked_entities(
             // Add Health component with default values - will be updated by server
             Health::default(),
         ));
-        
+
         // Spawn health bar for player
         let health_bar_bg = commands
             .spawn((
@@ -668,13 +686,23 @@ fn render_networked_entities(
 
     // Add visual representation to networked obstacles
     for (entity, position, obstacle) in obstacles.iter() {
-        commands.entity(entity).insert((
-            Sprite::from_color(
-                Color::srgb(0.5, 0.3, 0.1),
-                Vec2::new(obstacle.width, obstacle.height),
-            ), // Brown obstacles
-            Transform::from_translation(Vec3::new(position.x, position.y, 12.5)), // Slightly behind other entities
-        ));
+        // Skip rendering arena walls (IDs >= 1000)
+        if obstacle.id >= 1000 {
+            // Still need to add Transform component for position sync
+            commands.entity(entity).insert((
+                Transform::from_translation(Vec3::new(position.x, position.y, 12.5)),
+                Visibility::Hidden, // Make walls invisible
+            ));
+        } else {
+            // Render normal obstacles
+            commands.entity(entity).insert((
+                Sprite::from_color(
+                    Color::srgb(0.5, 0.3, 0.1),
+                    Vec2::new(obstacle.width, obstacle.height),
+                ), // Brown obstacles
+                Transform::from_translation(Vec3::new(position.x, position.y, 12.5)), // Slightly behind other entities
+            ));
+        }
     }
 
     // Add visual representation to networked projectiles
@@ -791,7 +819,7 @@ fn sync_position_to_transform(
                 // Players get light interpolation for 30Hz updates
                 let target_pos = position.0;
                 let current_pos = transform.translation.truncate();
-                
+
                 // Smooth position interpolation (10% per frame)
                 let smoothed_pos = current_pos.lerp(target_pos, 0.1);
                 transform.translation.x = smoothed_pos.x;
@@ -820,15 +848,16 @@ fn sync_position_to_transform(
                     // Players get light interpolation for smoother 30Hz updates
                     let target_rotation = rot.angle;
                     let current_rotation = transform.rotation.to_euler(EulerRot::ZYX).0;
-                    
+
                     // Smooth rotation interpolation (15% per frame)
-                    let angle_diff = (target_rotation - current_rotation).rem_euclid(std::f32::consts::TAU);
+                    let angle_diff =
+                        (target_rotation - current_rotation).rem_euclid(std::f32::consts::TAU);
                     let interpolated_angle = if angle_diff > std::f32::consts::PI {
                         current_rotation - (std::f32::consts::TAU - angle_diff) * 0.15
                     } else {
                         current_rotation + angle_diff * 0.15
                     };
-                    
+
                     transform.rotation = Quat::from_rotation_z(interpolated_angle);
                 }
             }
@@ -946,7 +975,10 @@ fn update_health_bars(
     // Query for player health bars
     mut player_fill_query: Query<(&mut Sprite, &PlayerHealthBar), With<HealthBarFill>>,
     // Query for boid health bars
-    mut boid_fill_query: Query<(&mut Sprite, &BoidHealthBar), (With<HealthBarFill>, Without<PlayerHealthBar>)>,
+    mut boid_fill_query: Query<
+        (&mut Sprite, &BoidHealthBar),
+        (With<HealthBarFill>, Without<PlayerHealthBar>),
+    >,
     // Query for player health
     player_query: Query<&Health, With<Player>>,
     // Query for boid health
@@ -957,7 +989,7 @@ fn update_health_bars(
         if let Ok(health) = player_query.get(health_bar.owner) {
             let health_percentage = (health.current / health.max).clamp(0.0, 1.0);
             sprite.custom_size = Some(Vec2::new(40.0 * health_percentage, 5.0));
-            
+
             // Color based on health percentage
             if health_percentage > 0.5 {
                 sprite.color = Color::srgb(0.2, 0.8, 0.2); // Green
@@ -1013,7 +1045,8 @@ fn update_player_health_bar_positions(
     for (mut bar_transform, health_bar) in health_bar_query.iter_mut() {
         if let Ok(player_transform) = player_query.get(health_bar.owner) {
             bar_transform.translation.x = player_transform.translation.x;
-            bar_transform.translation.y = player_transform.translation.y + 40.0; // Higher than boids
+            bar_transform.translation.y = player_transform.translation.y + 40.0;
+            // Higher than boids
         }
     }
 }
@@ -1034,7 +1067,7 @@ fn cleanup_health_bars(
             }
         }
     }
-    
+
     // Clean up player health bars
     for removed_player in removed_players.read() {
         for (entity, health_bar) in player_health_bar_query.iter() {
@@ -1241,32 +1274,34 @@ fn handle_projectile_spawn_events(
     // Receive all projectile spawn events
     for message_event in message_events.read() {
         let event = &message_event.message;
-        
+
         // Try to get an entity from the pool
         let entity = if let Some(pooled_entity) = pool.get() {
             pooled_entity
         } else if !pool.is_full() {
             // Create new entity if pool not at max capacity
-            commands.spawn((
-                ClientProjectile {
-                    network_id: 0,
-                    velocity: Vec2::ZERO,
-                    owner_id: 0,
-                    is_boid_projectile: false,
-                },
-                Sprite {
-                    image: pool.sprite_texture.clone(),
-                    custom_size: Some(Vec2::splat(PROJECTILE_SPRITE_SIZE)),
-                    ..default()
-                },
-                Transform::from_translation(Vec3::new(-1000.0, -1000.0, 14.0)),
-                Visibility::Hidden,
-            )).id()
+            commands
+                .spawn((
+                    ClientProjectile {
+                        network_id: 0,
+                        velocity: Vec2::ZERO,
+                        owner_id: 0,
+                        is_boid_projectile: false,
+                    },
+                    Sprite {
+                        image: pool.sprite_texture.clone(),
+                        custom_size: Some(Vec2::splat(PROJECTILE_SPRITE_SIZE)),
+                        ..default()
+                    },
+                    Transform::from_translation(Vec3::new(-1000.0, -1000.0, 14.0)),
+                    Visibility::Hidden,
+                ))
+                .id()
         } else {
             warn!("Projectile pool exhausted!");
             continue;
         };
-        
+
         // Update the entity with new projectile data
         if let Ok((mut transform, mut projectile, mut visibility)) = query.get_mut(entity) {
             // Update projectile data
@@ -1274,12 +1309,12 @@ fn handle_projectile_spawn_events(
             projectile.velocity = event.velocity;
             projectile.owner_id = event.owner_id;
             projectile.is_boid_projectile = event.is_boid_projectile;
-            
+
             // Update position and make visible
             transform.translation.x = event.position.x;
             transform.translation.y = event.position.y;
             *visibility = Visibility::Visible;
-            
+
             // Track the projectile
             pool.active.insert(event.id, entity);
             tracker.projectiles.insert(event.id, entity);
@@ -1297,19 +1332,19 @@ fn handle_projectile_despawn_events(
     // Receive all projectile despawn events
     for message_event in message_events.read() {
         let event = &message_event.message;
-        
+
         // Find the local projectile entity
         if let Some(entity) = tracker.projectiles.remove(&event.id) {
             // Remove from pool's active tracking
             pool.active.remove(&event.id);
-            
+
             // Return entity to pool instead of despawning
             if let Ok((mut transform, mut visibility)) = query.get_mut(entity) {
                 // Hide the entity and move it off-screen
                 *visibility = Visibility::Hidden;
                 transform.translation.x = -1000.0;
                 transform.translation.y = -1000.0;
-                
+
                 // Return to available pool
                 pool.return_entity(entity);
             }
@@ -1324,22 +1359,26 @@ fn update_client_projectiles(
 ) {
     let delta = time.delta_secs();
     let game_config = &*GAME_CONFIG;
-    
+
     for (mut transform, projectile) in projectiles.iter_mut() {
         // Update position based on velocity
         transform.translation.x += projectile.velocity.x * delta;
         transform.translation.y += projectile.velocity.y * delta;
-        
+
         // Update rotation to match velocity direction
         if projectile.velocity.length_squared() > 0.1 {
-            let angle = projectile.velocity.y.atan2(projectile.velocity.x) - std::f32::consts::FRAC_PI_2;
+            let angle =
+                projectile.velocity.y.atan2(projectile.velocity.x) - std::f32::consts::FRAC_PI_2;
             transform.rotation = Quat::from_rotation_z(angle);
         }
-        
+
         // Check bounds and mark for removal if out of bounds
         let pos = transform.translation.truncate();
-        if pos.x < 0.0 || pos.x > game_config.game_width || 
-           pos.y < 0.0 || pos.y > game_config.game_height {
+        if pos.x < 0.0
+            || pos.x > game_config.game_width
+            || pos.y < 0.0
+            || pos.y > game_config.game_height
+        {
             // Note: We don't despawn here - we wait for the server's despawn event
             // This prevents desync between client and server
         }

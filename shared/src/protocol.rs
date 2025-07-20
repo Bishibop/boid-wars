@@ -83,7 +83,6 @@ impl Default for BoidCombatState {
     }
 }
 
-
 /// Static obstacle component
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Obstacle {
@@ -415,7 +414,7 @@ impl BoidBundle {
                 max: 30.0,
             },
             combat_stats: BoidCombatStats::default(),
-            combat_state: BoidCombatState::default()
+            combat_state: BoidCombatState::default(),
         }
     }
 }

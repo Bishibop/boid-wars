@@ -146,9 +146,9 @@ fn group_combat_coordinator(
 
                             // Faster fire rates during pursuit/engagement
                             combat_stats.fire_rate = match member.role_in_group {
-                                BoidRole::Leader => 0.5,   // 1 shot every 2 seconds
-                                BoidRole::Flanker => 0.4,  // 1 shot every 2.5 seconds
-                                _ => 0.3,                  // 1 shot every ~3.3 seconds
+                                BoidRole::Leader => 0.5,  // 1 shot every 2 seconds
+                                BoidRole::Flanker => 0.4, // 1 shot every 2.5 seconds
+                                _ => 0.3,                 // 1 shot every ~3.3 seconds
                             };
                         } else {
                             // Non-shooter - disable combat by setting very low fire rate

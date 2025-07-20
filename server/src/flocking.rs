@@ -1,6 +1,8 @@
 use crate::spatial_grid::SpatialGrid;
 use bevy::prelude::*;
-use boid_wars_shared::{Boid, Position, Velocity, BoidGroup, BoidGroupMember, GroupBehavior, Player};
+use boid_wars_shared::{
+    Boid, BoidGroup, BoidGroupMember, GroupBehavior, Player, Position, Velocity,
+};
 
 /// Simplified configuration for flocking behavior
 #[derive(Resource, Debug, Clone)]
@@ -87,7 +89,10 @@ impl Default for FlockingConfig {
 pub fn update_flocking(
     mut boids: Query<(Entity, &Position, &mut Velocity, Option<&BoidGroupMember>), With<Boid>>,
     obstacle_query: Query<(&Position, &boid_wars_shared::Obstacle), Without<Boid>>,
-    player_query: Query<(&Position, &Velocity, &Player), (With<boid_wars_shared::Player>, Without<Boid>)>,
+    player_query: Query<
+        (&Position, &Velocity, &Player),
+        (With<boid_wars_shared::Player>, Without<Boid>),
+    >,
     group_query: Query<&BoidGroup>,
     spatial_grid: Res<SpatialGrid>,
     config: Res<FlockingConfig>,
@@ -243,7 +248,7 @@ pub fn update_flocking(
         // Check for pursuit behavior if boid is in an engaging group
         let mut pursuit_force = Vec2::ZERO;
         let mut is_pursuing = false;
-        
+
         if let Some(member) = group_member {
             if let Ok(group) = group_query.get(member.group_entity) {
                 if let GroupBehavior::Engaging { primary_target, .. } = &group.behavior_state {

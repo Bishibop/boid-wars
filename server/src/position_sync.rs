@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
-use boid_wars_shared::{Position, Velocity as NetworkVelocity, Player, Boid};
+use boid_wars_shared::{Boid, Player, Position, Velocity as NetworkVelocity};
 use std::time::Duration;
 use tracing::info;
 
@@ -84,10 +84,10 @@ impl Default for SyncConfig {
         Self {
             drift_threshold: 5.0, // Increased to account for 15Hz boid sync + 50% speed boost
             min_sync_distance: 0.1, // Increased from 0.001 - only sync meaningful movement
-            min_sync_velocity: 0.1,  // Increased from 0.001 - reduce velocity spam
+            min_sync_velocity: 0.1, // Increased from 0.001 - reduce velocity spam
             auto_correct_drift: true, // Always auto-correct to prevent drift
             player_sync_timer: Timer::from_seconds(0.033, TimerMode::Repeating), // 30Hz
-            boid_sync_timer: Timer::from_seconds(0.066, TimerMode::Repeating),   // 15Hz
+            boid_sync_timer: Timer::from_seconds(0.066, TimerMode::Repeating), // 15Hz
         }
     }
 }
@@ -189,14 +189,7 @@ pub fn sync_player_physics_to_network(
 /// Note: Boids don't sync rotation - it's derived from velocity on client
 #[allow(clippy::type_complexity)]
 pub fn sync_boid_physics_to_network(
-    mut query: Query<
-        (
-            &Transform,
-            &mut Position,
-            Entity,
-        ),
-        (With<SyncPosition>, With<Boid>),
-    >,
+    mut query: Query<(&Transform, &mut Position, Entity), (With<SyncPosition>, With<Boid>)>,
     mut config: ResMut<SyncConfig>,
     time: Res<Time>,
     mut metrics: ResMut<SyncPerformanceMetrics>,
@@ -253,7 +246,7 @@ pub fn sync_other_physics_to_network(
         if let Some(mut rot) = rotation {
             let new_angle = transform.rotation.to_euler(bevy::math::EulerRot::ZYX).0;
             let old_angle = rot.angle;
-            
+
             if (new_angle - old_angle).abs() > ROTATION_SYNC_THRESHOLD {
                 rot.angle = new_angle;
                 sync_count += 1;
