@@ -451,14 +451,9 @@ fn handle_player_input(
         }
 
         // Find the player for this client and update their physics input
-        for (player, mut physics_input, player_number) in players.iter_mut() {
+        for (player, mut physics_input, _player_number) in players.iter_mut() {
             if player.id == client_id.to_bits() {
-                // Skip input for Player2 (ghost player)
-                if matches!(player_number, PlayerNumber::Player2) {
-                    continue;
-                }
-
-                // Update physics input - this feeds into the physics input system
+                // Both players now have full functionality
                 physics_input.movement = input.movement.normalize_or_zero(); // Ensure normalized
                 physics_input.aim_direction = input.aim.normalize_or_zero(); // Ensure normalized
                 physics_input.thrust = if input.movement.length() > 0.0 {

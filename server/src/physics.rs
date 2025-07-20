@@ -1,5 +1,6 @@
 use crate::config::{MonitoringConfig, PhysicsConfig};
 use crate::pool::{BoundedPool, PooledEntity};
+use crate::position_sync::SyncPosition;
 use crate::spatial_grid::SpatialGridSet;
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
@@ -644,6 +645,7 @@ fn setup_projectile_pool(
                 ProjectileTemplate {
                     collider_radius: template.collider_radius,
                 },
+                SyncPosition, // Enable position sync for projectiles
             ))
             .id()
         },
@@ -689,6 +691,7 @@ fn setup_boid_projectile_pool(
                 BoidProjectileTemplate {
                     collider_radius: template.collider_radius,
                 },
+                SyncPosition, // Enable position sync for boid projectiles
             ))
             .id()
         },
@@ -1004,6 +1007,7 @@ fn shooting_system(
                         GlobalTransform::default(),
                         bevy_rapier2d::dynamics::GravityScale(0.0), // Disable gravity for projectiles
                         Name::new(PROJECTILE_NAME),
+                        SyncPosition, // Enable position sync for projectiles
                     ))
                     .id()
             };
@@ -1137,6 +1141,7 @@ fn boid_shooting_system(
                         GlobalTransform::default(),
                         bevy_rapier2d::dynamics::GravityScale(0.0),
                         Name::new(BOID_PROJECTILE_NAME),
+                        SyncPosition, // Enable position sync for boid projectiles
                     ))
                     .id()
             };
