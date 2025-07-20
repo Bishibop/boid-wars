@@ -3,8 +3,9 @@ use bevy::prelude::*;
 use boid_wars_shared::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::SharedConfig;
+use lightyear::client::message::ReceiveMessage;
 use std::net::SocketAddr;
-use tracing::info;
+use tracing::{info, warn};
 use wasm_bindgen::prelude::*;
 
 // Constants
@@ -47,6 +48,25 @@ struct SmoothTransform {
     velocity: Vec2,
     angular_velocity: f32,
     smoothing_factor: f32,
+}
+
+// Client-side projectile tracking
+#[derive(Resource, Default)]
+struct ClientProjectileTracker {
+    // Map network ID to local entity
+    projectiles: std::collections::HashMap<u32, Entity>,
+}
+
+// Component for client-side projectile simulation
+#[derive(Component)]
+struct ClientProjectile {
+    #[allow(dead_code)]
+    network_id: u32,
+    velocity: Vec2,
+    #[allow(dead_code)]
+    owner_id: u64,
+    #[allow(dead_code)]
+    is_boid_projectile: bool,
 }
 
 // Setup panic hook for better error messages in browser console
@@ -101,6 +121,7 @@ pub fn run() {
 
     // Initialize client ID storage
     app.init_resource::<MyClientId>();
+    app.init_resource::<ClientProjectileTracker>();
 
     // Add systems
     app.add_systems(Startup, (setup_scene, connect_to_server, setup_ui));
@@ -109,6 +130,9 @@ pub fn run() {
         (
             performance_monitor,
             handle_connection_events,
+            handle_projectile_spawn_events,
+            handle_projectile_despawn_events,
+            update_client_projectiles,
             render_networked_entities,
             sync_position_to_transform,
             update_player_rotation_to_mouse,
@@ -1138,6 +1162,88 @@ fn debug_collision_system(
                     is_player: false,
                 },
             ));
+        }
+    }
+}
+
+/// Handle projectile spawn events from server
+fn handle_projectile_spawn_events(
+    mut commands: Commands,
+    mut message_events: EventReader<ReceiveMessage<ProjectileSpawnEvent>>,
+    mut tracker: ResMut<ClientProjectileTracker>,
+    projectile_sprite: Res<ProjectileSprite>,
+) {
+    // Receive all projectile spawn events
+    for message_event in message_events.read() {
+        let event = &message_event.message;
+        info!("Received projectile spawn event: {:?}", event);
+        
+        // Spawn the projectile entity locally
+        let projectile_entity = commands.spawn((
+            ClientProjectile {
+                network_id: event.id,
+                velocity: event.velocity,
+                owner_id: event.owner_id,
+                is_boid_projectile: event.is_boid_projectile,
+            },
+            Sprite {
+                image: projectile_sprite.0.clone(),
+                custom_size: Some(Vec2::new(18.0, 18.0)),
+                ..default()
+            },
+            Transform::from_translation(Vec3::new(event.position.x, event.position.y, 4.0)),
+        )).id();
+        
+        // Track the projectile
+        tracker.projectiles.insert(event.id, projectile_entity);
+    }
+}
+
+/// Handle projectile despawn events from server
+fn handle_projectile_despawn_events(
+    mut commands: Commands,
+    mut message_events: EventReader<ReceiveMessage<ProjectileDespawnEvent>>,
+    mut tracker: ResMut<ClientProjectileTracker>,
+) {
+    // Receive all projectile despawn events
+    for message_event in message_events.read() {
+        let event = &message_event.message;
+        info!("Received projectile despawn event: {:?}", event);
+        
+        // Find and despawn the local projectile entity
+        if let Some(entity) = tracker.projectiles.remove(&event.id) {
+            commands.entity(entity).despawn();
+        } else {
+            warn!("Received despawn event for unknown projectile ID: {}", event.id);
+        }
+    }
+}
+
+/// Update client-side projectile positions based on velocity
+fn update_client_projectiles(
+    mut projectiles: Query<(&mut Transform, &ClientProjectile)>,
+    time: Res<Time>,
+) {
+    let delta = time.delta_secs();
+    let game_config = &*GAME_CONFIG;
+    
+    for (mut transform, projectile) in projectiles.iter_mut() {
+        // Update position based on velocity
+        transform.translation.x += projectile.velocity.x * delta;
+        transform.translation.y += projectile.velocity.y * delta;
+        
+        // Update rotation to match velocity direction
+        if projectile.velocity.length_squared() > 0.1 {
+            let angle = projectile.velocity.y.atan2(projectile.velocity.x) - std::f32::consts::FRAC_PI_2;
+            transform.rotation = Quat::from_rotation_z(angle);
+        }
+        
+        // Check bounds and mark for removal if out of bounds
+        let pos = transform.translation.truncate();
+        if pos.x < 0.0 || pos.x > game_config.game_width || 
+           pos.y < 0.0 || pos.y > game_config.game_height {
+            // Note: We don't despawn here - we wait for the server's despawn event
+            // This prevents desync between client and server
         }
     }
 }

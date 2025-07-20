@@ -5,6 +5,8 @@ use crate::spatial_grid::SpatialGridSet;
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use boid_wars_shared;
+use lightyear::prelude::server::*;
+use lightyear::prelude::{MessageSend, NetworkTarget};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::f32::consts::PI;
@@ -307,6 +309,7 @@ impl Plugin for PhysicsPlugin {
             .init_resource::<PlayerAggression>()
             .init_resource::<BoidAggression>()
             .init_resource::<PhysicsBuffers>()
+            .init_resource::<ProjectileIdGenerator>()
             .insert_resource(ProjectilePool::new(
                 ProjectileTemplate { collider_radius },
                 pool_size,
@@ -558,6 +561,24 @@ pub struct Projectile {
     pub projectile_type: ProjectileType,
     pub lifetime: Timer,
     pub speed: f32,
+}
+
+/// Network ID for projectiles to track them across spawn/despawn
+#[derive(Component, Clone, Debug)]
+pub struct ProjectileNetworkId(pub u32);
+
+/// Resource to generate unique projectile IDs
+#[derive(Resource, Default)]
+pub struct ProjectileIdGenerator {
+    next_id: u32,
+}
+
+impl ProjectileIdGenerator {
+    pub fn next(&mut self) -> u32 {
+        let id = self.next_id;
+        self.next_id = self.next_id.wrapping_add(1);
+        id
+    }
 }
 
 /// Different projectile types for weapon variety
@@ -931,6 +952,8 @@ fn shooting_system(
     mut player_query: Query<(Entity, &PlayerInput, &mut Player, &WeaponStats, &Transform)>,
     mut pool: ResMut<ProjectilePool>,
     mut player_aggression: ResMut<PlayerAggression>,
+    mut id_generator: ResMut<ProjectileIdGenerator>,
+    mut connection_manager: ResMut<ConnectionManager>,
     time: Res<Time>,
     config: Res<PhysicsConfig>,
 ) {
@@ -951,8 +974,11 @@ fn shooting_system(
 
             let projectile_velocity = input.aim_direction * weapon.projectile_speed;
 
+            // Generate unique network ID for this projectile
+            let network_id = id_generator.next();
+            
             // Try to get a projectile from the pool
-            let projectile_entity = if let Some(pooled_handle) = pool.acquire() {
+            let _projectile_entity = if let Some(pooled_handle) = pool.acquire() {
                 let _status = pool.status();
 
                 // Update existing projectile components
@@ -969,6 +995,8 @@ fn shooting_system(
                         },
                         speed: weapon.projectile_speed,
                     },
+                    // Add network ID
+                    ProjectileNetworkId(network_id),
                     // Reset physics state
                     Transform::from_translation(projectile_spawn_pos.extend(0.0)),
                     Velocity::linear(projectile_velocity),
@@ -996,6 +1024,8 @@ fn shooting_system(
                             lifetime: Timer::new(weapon.projectile_lifetime, TimerMode::Once),
                             speed: weapon.projectile_speed,
                         },
+                        // Add network ID
+                        ProjectileNetworkId(network_id),
                         // Rapier2D components
                         RigidBody::Dynamic,
                         Collider::ball(config.projectile_collider_radius),
@@ -1007,23 +1037,27 @@ fn shooting_system(
                         GlobalTransform::default(),
                         bevy_rapier2d::dynamics::GravityScale(0.0), // Disable gravity for projectiles
                         Name::new(PROJECTILE_NAME),
-                        SyncPosition, // Enable position sync for projectiles
+                        // Note: No SyncPosition component - we'll use spawn/despawn events
                     ))
                     .id()
             };
 
-            // Add network components for client replication
-            commands.entity(projectile_entity).insert((
-                // Network components for replication
-                boid_wars_shared::Projectile {
-                    id: projectile_entity.index(), // Use entity index as ID
-                    damage: weapon.damage,
-                    owner_id: player.player_id,
-                },
-                boid_wars_shared::Position(projectile_spawn_pos),
-                boid_wars_shared::Velocity(projectile_velocity),
-                lightyear::prelude::server::Replicate::default(),
-            ));
+            // Send spawn event to all clients
+            let spawn_event = boid_wars_shared::ProjectileSpawnEvent {
+                id: network_id,
+                position: projectile_spawn_pos,
+                velocity: projectile_velocity,
+                owner_id: player.player_id,
+                damage: weapon.damage,
+                is_boid_projectile: false,
+            };
+            
+            connection_manager.send_message_to_target::<boid_wars_shared::ReliableChannel, _>(
+                &spawn_event,
+                NetworkTarget::All,
+            ).unwrap_or_else(|e| {
+                warn!("Failed to send projectile spawn event: {:?}", e);
+            });
         }
     }
 }
@@ -1046,6 +1080,8 @@ fn boid_shooting_system(
     boid_aggression: Res<BoidAggression>,
     spatial_grid: Res<crate::spatial_grid::SpatialGrid>,
     mut boid_pool: ResMut<BoidProjectilePool>,
+    mut id_generator: ResMut<ProjectileIdGenerator>,
+    mut connection_manager: ResMut<ConnectionManager>,
     time: Res<Time>,
     config: Res<PhysicsConfig>,
 ) {
@@ -1095,8 +1131,11 @@ fn boid_shooting_system(
                 transform.translation.truncate() + aim_direction * spawn_offset;
             let projectile_velocity = aim_direction * combat_stats.projectile_speed;
 
+            // Generate unique network ID for this projectile
+            let network_id = id_generator.next();
+
             // Try to get a projectile from the boid pool
-            let projectile_entity = if let Some(pooled_handle) = boid_pool.acquire() {
+            let _projectile_entity = if let Some(pooled_handle) = boid_pool.acquire() {
                 // Update existing projectile components
                 commands.entity(pooled_handle.entity).insert((
                     Projectile {
@@ -1110,6 +1149,8 @@ fn boid_shooting_system(
                         },
                         speed: combat_stats.projectile_speed,
                     },
+                    // Add network ID
+                    ProjectileNetworkId(network_id),
                     Transform::from_translation(projectile_spawn_pos.extend(0.0)),
                     Velocity::linear(projectile_velocity),
                     ActiveEvents::COLLISION_EVENTS,
@@ -1131,6 +1172,8 @@ fn boid_shooting_system(
                             lifetime: Timer::new(Duration::from_secs(2), TimerMode::Once),
                             speed: combat_stats.projectile_speed,
                         },
+                        // Add network ID
+                        ProjectileNetworkId(network_id),
                         RigidBody::Dynamic,
                         Collider::ball(config.projectile_collider_radius),
                         Sensor,
@@ -1141,22 +1184,27 @@ fn boid_shooting_system(
                         GlobalTransform::default(),
                         bevy_rapier2d::dynamics::GravityScale(0.0),
                         Name::new(BOID_PROJECTILE_NAME),
-                        SyncPosition, // Enable position sync for boid projectiles
+                        // Note: No SyncPosition component - we'll use spawn/despawn events
                     ))
                     .id()
             };
 
-            // Add network components for client replication
-            commands.entity(projectile_entity).insert((
-                boid_wars_shared::Projectile {
-                    id: projectile_entity.index(),
-                    damage: combat_stats.damage,
-                    owner_id: boid_entity.index() as u64, // Use boid entity as owner
-                },
-                boid_wars_shared::Position(projectile_spawn_pos),
-                boid_wars_shared::Velocity(projectile_velocity),
-                lightyear::prelude::server::Replicate::default(),
-            ));
+            // Send spawn event to all clients
+            let spawn_event = boid_wars_shared::ProjectileSpawnEvent {
+                id: network_id,
+                position: projectile_spawn_pos,
+                velocity: projectile_velocity,
+                owner_id: boid_entity.index() as u64, // Use boid entity ID
+                damage: combat_stats.damage,
+                is_boid_projectile: true,
+            };
+            
+            connection_manager.send_message_to_target::<boid_wars_shared::ReliableChannel, _>(
+                &spawn_event,
+                NetworkTarget::All,
+            ).unwrap_or_else(|e| {
+                warn!("Failed to send boid projectile spawn event: {:?}", e);
+            });
         }
     }
 }
@@ -1432,12 +1480,14 @@ fn return_projectiles_to_pool(
     mut commands: Commands,
     mut player_pool: ResMut<ProjectilePool>,
     mut boid_pool: ResMut<BoidProjectilePool>,
+    mut connection_manager: ResMut<ConnectionManager>,
     mut projectiles: Query<
         (
             Entity,
             &mut Transform,
             &mut Velocity,
             &mut Projectile,
+            Option<&ProjectileNetworkId>,
             Option<&PooledProjectile>,
             Option<&Despawning>,
             Option<&ProjectileTemplate>,
@@ -1452,6 +1502,7 @@ fn return_projectiles_to_pool(
         mut transform,
         mut velocity,
         mut projectile,
+        network_id,
         pooled,
         despawning,
         player_template,
@@ -1462,6 +1513,17 @@ fn return_projectiles_to_pool(
         let should_return = despawning.is_some() || projectile.lifetime.finished();
 
         if should_return {
+            // Send despawn event if this projectile has a network ID
+            if let Some(ProjectileNetworkId(id)) = network_id {
+                let despawn_event = boid_wars_shared::ProjectileDespawnEvent { id: *id };
+                
+                connection_manager.send_message_to_target::<boid_wars_shared::ReliableChannel, _>(
+                    &despawn_event,
+                    NetworkTarget::All,
+                ).unwrap_or_else(|e| {
+                    warn!("Failed to send projectile despawn event: {:?}", e);
+                });
+            }
             // Only process pooled projectiles
             if let Some(PooledProjectile(pooled_handle)) = pooled {
                 // Determine which pool to use based on template type
@@ -1493,6 +1555,10 @@ fn return_projectiles_to_pool(
 
                 // Remove network components to stop replication (with error handling)
                 if let Ok(mut entity_commands) = commands.get_entity(entity) {
+                    // Remove the network ID component
+                    entity_commands.remove::<ProjectileNetworkId>();
+                    
+                    // Remove old network components (if any still exist)
                     entity_commands.remove::<boid_wars_shared::Projectile>();
                     entity_commands.remove::<boid_wars_shared::Position>();
                     entity_commands.remove::<boid_wars_shared::Velocity>();

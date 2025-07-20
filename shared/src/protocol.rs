@@ -322,6 +322,38 @@ impl MapEntities for PlayerInput {
     fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
 }
 
+/// Event sent when a projectile is spawned
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct ProjectileSpawnEvent {
+    /// Unique ID for this projectile
+    pub id: u32,
+    /// Initial position
+    pub position: Vec2,
+    /// Initial velocity
+    pub velocity: Vec2,
+    /// Owner player ID (for collision detection)
+    pub owner_id: u64,
+    /// Damage amount
+    pub damage: f32,
+    /// Whether this is a boid projectile (affects visuals)
+    pub is_boid_projectile: bool,
+}
+
+impl MapEntities for ProjectileSpawnEvent {
+    fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
+}
+
+/// Event sent when a projectile is despawned
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct ProjectileDespawnEvent {
+    /// Unique ID of the projectile to despawn
+    pub id: u32,
+}
+
+impl MapEntities for ProjectileDespawnEvent {
+    fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
+}
+
 // Bundles
 
 #[derive(Bundle)]
@@ -385,6 +417,8 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // Register types with Bevy
         app.register_type::<PlayerInput>();
+        app.register_type::<ProjectileSpawnEvent>();
+        app.register_type::<ProjectileDespawnEvent>();
 
         // Register components for replication using correct Lightyear 0.20 API
         // Server-authoritative components (unidirectional to save bandwidth)
@@ -403,8 +437,10 @@ impl Plugin for ProtocolPlugin {
         // Group system components - NOT replicated to save bandwidth
         // Groups are server-side only for AI coordination
 
-        // Register PlayerInput as message (not input plugin)
+        // Register messages
         app.register_message::<PlayerInput>(ChannelDirection::ClientToServer);
+        app.register_message::<ProjectileSpawnEvent>(ChannelDirection::ServerToClient);
+        app.register_message::<ProjectileDespawnEvent>(ChannelDirection::ServerToClient);
 
         // Register channels using correct Lightyear 0.20 API
         app.add_channel::<UnreliableChannel>(ChannelSettings {
