@@ -181,23 +181,40 @@ pub fn spawn_boid_group(
         // Create boid bundle with enhanced stats based on archetype
         let mut bundle = BoidBundle::new(boid_id, x, y);
 
-        // Adjust combat stats based on archetype
+        // Dramatically adjust combat stats based on archetype
         match archetype {
             GroupArchetype::Assault {
                 aggression_multiplier,
                 ..
             } => {
-                bundle.combat_stats.damage *= aggression_multiplier;
-                bundle.combat_stats.fire_rate *= 1.1; // Only slightly faster
+                // Assault: High damage, fast fire rate, close range, heavy health
+                bundle.combat_stats.damage = 8.0 * aggression_multiplier; // Higher base damage
+                bundle.combat_stats.fire_rate = 0.4; // Much faster firing (2.5 shots/sec)
+                bundle.combat_stats.projectile_speed = 500.0; // Fast projectiles
+                bundle.combat_stats.aggression_range = 180.0; // Close engagement range
+                bundle.combat_stats.spread_angle = 0.15; // Less accurate (~8.5 degrees)
+                bundle.health.max = 40.0; // Tankier for frontline combat
+                bundle.health.current = bundle.health.max;
             }
             GroupArchetype::Defensive { .. } => {
-                bundle.health.max *= 1.5;
+                // Defensive: Moderate damage, slow fire rate, long range, heavy health
+                bundle.combat_stats.damage = 6.0; // Moderate damage
+                bundle.combat_stats.fire_rate = 0.25; // Slower, methodical firing (4 sec per shot)
+                bundle.combat_stats.projectile_speed = 450.0; // Moderate speed
+                bundle.combat_stats.aggression_range = 350.0; // Long engagement range
+                bundle.combat_stats.spread_angle = 0.05; // Very accurate (~3 degrees)
+                bundle.health.max = 50.0; // Heaviest armor for defensive positions
                 bundle.health.current = bundle.health.max;
-                bundle.combat_stats.fire_rate *= 0.9; // Only slightly slower
             }
             GroupArchetype::Recon { .. } => {
-                bundle.combat_stats.aggression_range *= 1.5;
-                bundle.combat_stats.fire_rate *= 0.8; // Recon shoots less often
+                // Recon: Low damage, moderate fire rate, very long range, light health
+                bundle.combat_stats.damage = 4.0; // Lower damage for harassment
+                bundle.combat_stats.fire_rate = 0.3; // Moderate firing (~3.3 sec per shot)
+                bundle.combat_stats.projectile_speed = 600.0; // Fastest projectiles
+                bundle.combat_stats.aggression_range = 400.0; // Longest range for scouting
+                bundle.combat_stats.spread_angle = 0.08; // Good accuracy (~4.5 degrees)
+                bundle.health.max = 20.0; // Light armor for mobility
+                bundle.health.current = bundle.health.max;
             }
         }
 

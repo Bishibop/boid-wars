@@ -42,13 +42,27 @@ convert "assets/game-assets/sprites/Ship_player_2.png" \
     -quality 95 \
     "$OPTIMIZED_DIR/sprites/Ship_player_2.png"
 
-# Optimize boid sprite (resize to 32x32)
+# Optimize boid sprites (resize to 32x32)
 echo "  • Optimizing Ship_04.png..."
 convert "assets/game-assets/sprites/Ship_04.png" \
     -resize 32x32 \
     -strip \
     -quality 95 \
     "$OPTIMIZED_DIR/sprites/Ship_04.png"
+
+echo "  • Optimizing Ship_05.png..."
+convert "assets/game-assets/sprites/Ship_05.png" \
+    -resize 32x32 \
+    -strip \
+    -quality 95 \
+    "$OPTIMIZED_DIR/sprites/Ship_05.png"
+
+echo "  • Optimizing Ship_06.png..."
+convert "assets/game-assets/sprites/Ship_06.png" \
+    -resize 32x32 \
+    -strip \
+    -quality 95 \
+    "$OPTIMIZED_DIR/sprites/Ship_06.png"
 
 # Optimize projectile sprite (resize to 18x18)
 echo "  • Optimizing laser1_small.png..."
