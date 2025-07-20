@@ -17,12 +17,11 @@ const BOID_SPRITE_SIZE: f32 = 32.0; // Actual boid sprite size
 const PROJECTILE_SPRITE_SIZE: f32 = 18.0; // Actual projectile sprite size
 
 // Client-side components
-#[derive(Component)]
-struct LocalPlayer;
-
 // Health bar components
 #[derive(Component)]
-struct PlayerHealthBar;
+struct PlayerHealthBar {
+    owner: Entity,
+}
 
 #[derive(Component)]
 struct HealthBarBackground;
@@ -140,8 +139,7 @@ pub fn run() {
     );
 
     // Add Lightyear client plugins
-    let (lightyear_config, client_id) = create_client_config();
-    app.insert_resource(MyClientId(client_id));
+    let lightyear_config = create_client_config();
     app.add_plugins(ClientPlugins::new(lightyear_config));
 
     // Add shared protocol
@@ -167,14 +165,13 @@ pub fn run() {
     app.insert_resource(ProjectileSpritePool::new(500)); // Match server pool size
 
     // Add systems with proper ordering
-    app.add_systems(Startup, (setup_scene, connect_to_server, setup_ui));
+    app.add_systems(Startup, (setup_scene, connect_to_server));
     app.add_systems(Startup, setup_projectile_pool.after(setup_scene));
     app.add_systems(
         Update,
         (
             performance_monitor,
             handle_connection_events,
-            mark_local_player,
             handle_projectile_spawn_events,
             handle_projectile_despawn_events,
             update_client_projectiles,
@@ -185,6 +182,7 @@ pub fn run() {
             debug_player_count,
             update_health_bars,
             update_boid_health_bar_positions,
+            update_player_health_bar_positions,
             cleanup_health_bars,
             // handle_camera_zoom, // Removed mouse scroll zoom
             smooth_interpolation_system,
@@ -200,7 +198,7 @@ pub fn run() {
 // Configuration is now loaded from the shared config system
 
 /// Create Lightyear client configuration
-fn create_client_config() -> (lightyear::prelude::client::ClientConfig, u64) {
+fn create_client_config() -> lightyear::prelude::client::ClientConfig {
     let network_config = &*NETWORK_CONFIG;
     
     // Dynamically construct WebSocket URL based on environment and page protocol
@@ -262,7 +260,7 @@ fn create_client_config() -> (lightyear::prelude::client::ClientConfig, u64) {
         },
     };
 
-    let config = lightyear::prelude::client::ClientConfig {
+    lightyear::prelude::client::ClientConfig {
         shared: SharedConfig::default(),
         net: net_config,
         replication: Default::default(),
@@ -271,54 +269,9 @@ fn create_client_config() -> (lightyear::prelude::client::ClientConfig, u64) {
         interpolation: Default::default(),
         prediction: Default::default(),
         sync: Default::default(),
-    };
-    
-    (config, client_id)
+    }
 }
 
-/// UI setup for health bars
-fn setup_ui(mut commands: Commands) {
-    // Player health bar container with border
-    commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(20.0),
-                left: Val::Px(20.0),
-                width: Val::Px(204.0), // Increased for border
-                height: Val::Px(24.0), // Increased for border
-                border: UiRect::all(Val::Px(2.0)), // 2px border all around
-                ..default()
-            },
-            BackgroundColor(Color::srgb(1.0, 1.0, 1.0)), // White border
-            BorderColor(Color::srgb(1.0, 1.0, 1.0)), // White border color
-            PlayerHealthBar,
-        ))
-        .with_children(|parent| {
-            // Health bar background (black)
-            parent.spawn((
-                Node {
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
-                    ..default()
-                },
-                BackgroundColor(Color::srgb(0.0, 0.0, 0.0)), // Black background
-                HealthBarBackground,
-            ))
-            .with_children(|parent| {
-                // Health bar fill (red)
-                parent.spawn((
-                    Node {
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(0.8, 0.2, 0.2)), // Red fill
-                    HealthBarFill,
-                ));
-            });
-        });
-}
 
 /// Check if WebP is supported by the browser
 fn supports_webp() -> bool {
@@ -451,10 +404,6 @@ fn setup_projectile_pool(
 #[derive(Resource)]
 struct PerformanceTimer(Timer);
 
-/// Store our client ID
-#[derive(Resource)]
-struct MyClientId(u64);
-
 
 /// Resource to hold player sprite texture
 #[derive(Resource)]
@@ -543,23 +492,6 @@ fn handle_connection_events(
     }
 }
 
-/// Mark the local player entity
-fn mark_local_player(
-    my_client_id: Res<MyClientId>,
-    mut commands: Commands,
-    players: Query<(Entity, &Player), Without<LocalPlayer>>,
-) {
-    // Get our client ID from the resource
-    let our_id = my_client_id.0;
-    
-    // Find and mark our player
-    for (entity, player) in players.iter() {
-        if player.id == our_id {
-            commands.entity(entity).insert(LocalPlayer);
-        }
-    }
-}
-
 // Type aliases to simplify complex queries
 type UnrenderedPlayer = (With<Player>, Without<Sprite>);
 type UnrenderedBoid = (With<Boid>, Without<Sprite>);
@@ -628,7 +560,33 @@ fn render_networked_entities(
                 ..default()
             },
             transform,
+            // Add Health component with default values - will be updated by server
+            Health::default(),
         ));
+        
+        // Spawn health bar for player
+        let health_bar_bg = commands
+            .spawn((
+                Sprite::from_color(Color::srgb(0.2, 0.2, 0.2), Vec2::new(40.0, 5.0)),
+                Transform::from_translation(Vec3::new(position.x, position.y + 40.0, 11.5)),
+                PlayerHealthBar { owner: entity },
+            ))
+            .id();
+
+        let health_bar_fill = commands
+            .spawn((
+                Sprite::from_color(Color::srgb(0.8, 0.2, 0.2), Vec2::new(40.0, 5.0)),
+                Transform::from_translation(Vec3::new(position.x, position.y + 40.0, 11.6)),
+                PlayerHealthBar { owner: entity },
+                HealthBarFill,
+            ))
+            .id();
+
+        // Store health bar references on the player entity
+        commands.entity(entity).insert(HealthBarLink {
+            background: health_bar_bg,
+            fill: health_bar_fill,
+        });
     }
 
     // Add visual representation to networked boids (includes AI players)
@@ -733,7 +691,6 @@ fn sync_position_to_transform(
             Option<&Player>,
             Option<&Projectile>,
             Option<&mut SmoothTransform>,
-            Option<&LocalPlayer>,
         ),
         Or<(Changed<Position>, Changed<Rotation>, Changed<Velocity>)>,
     >,
@@ -747,7 +704,6 @@ fn sync_position_to_transform(
         player,
         projectile,
         smooth_transform,
-        local_player,
     ) in query.iter_mut()
     {
         // Check if this entity needs smooth interpolation (only boids, not players or projectiles)
@@ -806,8 +762,8 @@ fn sync_position_to_transform(
             }
         } else {
             // Players and projectiles get position updates
-            if player.is_some() && local_player.is_none() {
-                // Remote players get light interpolation for 30Hz updates
+            if player.is_some() {
+                // Players get light interpolation for 30Hz updates
                 let target_pos = position.0;
                 let current_pos = transform.translation.truncate();
                 
@@ -832,11 +788,11 @@ fn sync_position_to_transform(
                 }
             }
 
-            // Sync rotation from server for remote players only
+            // Sync rotation from server for players
             // (Local player rotation is handled by update_player_rotation_to_mouse)
             if let Some(rot) = rotation {
-                if player.is_some() && local_player.is_none() {
-                    // Remote players get light interpolation for smoother 30Hz updates
+                if player.is_some() {
+                    // Players get light interpolation for smoother 30Hz updates
                     let target_rotation = rot.angle;
                     let current_rotation = transform.rotation.to_euler(EulerRot::ZYX).0;
                     
@@ -858,7 +814,7 @@ fn sync_position_to_transform(
 /// Update player sprite rotation to face mouse cursor
 #[allow(clippy::type_complexity)]
 fn update_player_rotation_to_mouse(
-    mut players: Query<(&Position, &mut Transform), (With<Player>, With<LocalPlayer>)>,
+    mut players: Query<(&Position, &mut Transform), With<Player>>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
 ) {
@@ -888,7 +844,7 @@ fn send_player_input(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    players: Query<&Position, (With<Player>, With<LocalPlayer>)>,
+    players: Query<&Position, With<Player>>,
 ) {
     let mut movement = Vec2::ZERO;
     let fire = keys.pressed(KeyCode::Space) || mouse_buttons.pressed(MouseButton::Left);
@@ -962,50 +918,30 @@ fn debug_player_count(
 
 /// Update health bars based on entity health
 fn update_health_bars(
-    // Query for the main player's health bar
-    mut health_bar_query: Query<&mut Node, (With<HealthBarFill>, With<PlayerHealthBar>)>,
+    // Query for player health bars
+    mut player_fill_query: Query<(&mut Sprite, &PlayerHealthBar), With<HealthBarFill>>,
     // Query for boid health bars
-    mut boid_fill_query: Query<(&mut Sprite, &BoidHealthBar), With<HealthBarFill>>,
-    // Query for all players with health
-    player_query: Query<(&Health, &Player), With<Player>>,
+    mut boid_fill_query: Query<(&mut Sprite, &BoidHealthBar), (With<HealthBarFill>, Without<PlayerHealthBar>)>,
+    // Query for player health
+    player_query: Query<&Health, With<Player>>,
     // Query for boid health
     boid_query: Query<&Health, With<Boid>>,
-    // Get our client ID
-    my_client_id: Res<MyClientId>,
-    mut log_timer: Local<f32>,
-    time: Res<Time>,
 ) {
-    // Log every second
-    *log_timer += time.delta_secs();
-    let should_log = *log_timer >= 1.0;
-    if should_log {
-        *log_timer = 0.0;
-    }
-    
-    // Get our client ID
-    let our_id = my_client_id.0;
-    
-    // Find our player by matching IDs
-    let mut found_local_player = false;
-    for (health, player) in player_query.iter() {
-        if player.id == our_id {
-            found_local_player = true;
-            if should_log {
-                info!("Local player health: {}/{}", health.current, health.max);
+    // Update player health bars
+    for (mut sprite, health_bar) in player_fill_query.iter_mut() {
+        if let Ok(health) = player_query.get(health_bar.owner) {
+            let health_percentage = (health.current / health.max).clamp(0.0, 1.0);
+            sprite.custom_size = Some(Vec2::new(40.0 * health_percentage, 5.0));
+            
+            // Color based on health percentage
+            if health_percentage > 0.5 {
+                sprite.color = Color::srgb(0.2, 0.8, 0.2); // Green
+            } else if health_percentage > 0.25 {
+                sprite.color = Color::srgb(0.8, 0.8, 0.2); // Yellow
+            } else {
+                sprite.color = Color::srgb(0.8, 0.2, 0.2); // Red
             }
-            for mut health_bar in health_bar_query.iter_mut() {
-                let health_percentage = (health.current / health.max).clamp(0.0, 1.0);
-                health_bar.width = Val::Percent(health_percentage * 100.0);
-                if should_log {
-                    info!("Health bar updated to {}%", health_percentage * 100.0);
-                }
-            }
-            break;
         }
-    }
-    
-    if !found_local_player && should_log {
-        info!("No local player found for health bar update (our ID: {})", our_id);
     }
 
     // Update boid health bars
@@ -1044,16 +980,40 @@ fn update_boid_health_bar_positions(
     }
 }
 
+/// Update player health bar positions to follow players
+fn update_player_health_bar_positions(
+    player_query: Query<&Transform, With<Player>>,
+    mut health_bar_query: Query<(&mut Transform, &PlayerHealthBar), Without<Player>>,
+) {
+    for (mut bar_transform, health_bar) in health_bar_query.iter_mut() {
+        if let Ok(player_transform) = player_query.get(health_bar.owner) {
+            bar_transform.translation.x = player_transform.translation.x;
+            bar_transform.translation.y = player_transform.translation.y + 40.0; // Higher than boids
+        }
+    }
+}
+
 /// Clean up health bars when entities are removed
 fn cleanup_health_bars(
     mut commands: Commands,
     mut removed_boids: RemovedComponents<Boid>,
-    health_bar_query: Query<(Entity, &BoidHealthBar)>,
+    mut removed_players: RemovedComponents<Player>,
+    boid_health_bar_query: Query<(Entity, &BoidHealthBar)>,
+    player_health_bar_query: Query<(Entity, &PlayerHealthBar)>,
 ) {
+    // Clean up boid health bars
     for removed_boid in removed_boids.read() {
-        // Find and despawn health bars associated with removed boids
-        for (entity, health_bar) in health_bar_query.iter() {
+        for (entity, health_bar) in boid_health_bar_query.iter() {
             if health_bar.owner == removed_boid {
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+    
+    // Clean up player health bars
+    for removed_player in removed_players.read() {
+        for (entity, health_bar) in player_health_bar_query.iter() {
+            if health_bar.owner == removed_player {
                 commands.entity(entity).despawn();
             }
         }

@@ -14,22 +14,13 @@ pub fn handle_health_change_events(
     for message_event in message_events.read() {
         let event = &message_event.message;
         
-        info!("Client received health event for entity ID: {}", event.entity_id);
-        
         // Try to find the entity by ID
         let mut found = false;
         
         // Check players
-        let player_ids: Vec<u64> = players.iter().map(|(_, p)| p.id).collect();
-        if !player_ids.is_empty() {
-            info!("Available player IDs on client: {:?}", player_ids);
-        }
-        
         for (entity, player) in players.iter() {
             if player.id == event.entity_id {  // No cast needed, both are u64 now
                 if let Ok(mut health) = player_query.get_mut(entity) {
-                    info!("Matched! Updating health for player {} - old: {}/{}, new: {}/{}",
-                        player.id, health.current, health.max, event.new_health, event.max_health);
                     health.current = event.new_health;
                     health.max = event.max_health;
                     found = true;
