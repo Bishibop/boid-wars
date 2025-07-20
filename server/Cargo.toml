@@ -7,7 +7,7 @@ edition.workspace = true
 # Local
 boid-wars-shared = { path = "../shared" }
 
-# Core
+# Core  
 bevy = { workspace = true }
 lightyear = { workspace = true }
 serde = { workspace = true }
@@ -27,8 +27,12 @@ tracing-subscriber = { workspace = true }
 
 
 # Debug UI (dev builds only)
-bevy-inspector-egui = "0.32"
-bevy_egui = "0.35"
+bevy-inspector-egui = { version = "0.32", optional = true }
+bevy_egui = { version = "0.35", optional = true }
+
+[features]
+default = []
+debug-ui = ["bevy-inspector-egui", "bevy_egui", "bevy/default"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

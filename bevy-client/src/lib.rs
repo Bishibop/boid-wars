@@ -102,24 +102,36 @@ fn create_client_config() -> lightyear::prelude::client::ClientConfig {
         // Development: always use localhost with ws://
         "127.0.0.1:8080".parse().expect("Failed to parse dev address")
     } else {
-        // Production: construct address using page's host
-        let host = web_sys::window()
-            .and_then(|w| w.location().hostname().ok())
-            .unwrap_or_else(|| "boid-wars.fly.dev".to_string());
-            
-        let protocol = web_sys::window()
-            .and_then(|w| w.location().protocol().ok())
-            .unwrap_or_else(|| "https:".to_string());
-            
-        info!("🔗 Detected page protocol: {}, host: {}", protocol, host);
+        // Production: construct address using page's host and port
+        let window = web_sys::window().expect("Should have window");
+        let location = window.location();
         
-        // Try to parse the current host with port 8080
+        let host = location.hostname()
+            .unwrap_or_else(|_| "boid-wars.fly.dev".to_string());
+            
+        let protocol = location.protocol()
+            .unwrap_or_else(|_| "https:".to_string());
+            
+        // Get the current page's port, or use standard ports
+        let port = location.port()
+            .ok()
+            .and_then(|p| if p.is_empty() { None } else { Some(p) })
+            .unwrap_or_else(|| {
+                // If no port specified, use standard ports
+                if protocol == "https:" { "443".to_string() } else { "80".to_string() }
+            });
+            
+        info!("🔗 Detected page protocol: {}, host: {}, port: {}", protocol, host, port);
+        
+        // Try to parse the current host with detected port
         // If it fails, fall back to dummy IP (browser will use page host anyway)
-        format!("{}:8080", host)
+        format!("{}:{}", host, port)
             .parse::<SocketAddr>()
             .unwrap_or_else(|_| {
                 info!("⚠️  Could not parse host as IP, using fallback");
-                "127.0.0.1:8080".parse().unwrap()
+                // Use standard port in fallback too
+                let fallback_port = if protocol == "https:" { 443 } else { 80 };
+                format!("127.0.0.1:{}", fallback_port).parse().unwrap()
             })
     };
 

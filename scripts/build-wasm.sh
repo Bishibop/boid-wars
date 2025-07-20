@@ -29,7 +29,7 @@ rm -rf pkg
 # Build the WASM module
 echo "🔨 Building with wasm-pack..."
 # Use specific features that work with WASM
-wasm-pack build --target web --out-dir ../client/src/wasm
+wasm-pack build --target web --out-dir ../client/src/wasm --release
 
 echo "✅ WASM module built successfully"
 echo "📁 Output: client/src/wasm/"

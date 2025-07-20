@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::app::PluginGroupBuilder;
 use boid_wars_shared::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::{NetworkTarget, SharedConfig};
@@ -20,43 +21,69 @@ pub mod spatial_grid;
 use bevy_rapier2d::prelude::{Collider, ExternalForce, ExternalImpulse, RigidBody};
 use config::PhysicsConfig;
 use debug_ui::DebugUIPlugin;
-use flocking::FlockingPlugin;
 use physics::{GameCollisionGroups, PhysicsPlugin, Ship, WeaponStats};
 use position_sync::{PositionSyncPlugin, SyncPosition};
 use spatial_grid::SpatialGridPlugin;
 
+/// Returns the appropriate base plugins depending on whether we're in debug or release mode
+fn get_base_plugins() -> PluginGroupBuilder {
+    #[cfg(debug_assertions)]
+    {
+        // In debug mode, use DefaultPlugins with a window for the debug UI
+        DefaultPlugins.build().set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Boid Wars Server (Debug)".to_string(),
+                resolution: (1800.0, 1350.0).into(),
+                ..default()
+            }),
+            ..default()
+        })
+    }
+    
+    #[cfg(not(debug_assertions))]
+    {
+        // In release mode, use DefaultPlugins but disable windowing
+        DefaultPlugins.build().disable::<WindowPlugin>()
+    }
+}
+
 fn main() {
-    info!("Starting Boid Wars server...");
+    // Initialize logging first
+    tracing_subscriber::fmt::init();
+    
+    info!("🚀 Starting Boid Wars server...");
+    info!("🔧 Bevy plugins: {}", if cfg!(debug_assertions) { "DefaultPlugins (debug)" } else { "DefaultPlugins (headless)" });
 
     // Load configuration
     let network_config = &*NETWORK_CONFIG;
     let game_config = &*GAME_CONFIG;
 
     // Configure server address
+    info!("📡 Parsing server bind address: {}", network_config.server_bind_addr);
     let server_addr: SocketAddr = network_config
         .server_bind_addr
         .parse()
         .expect("Failed to parse server bind address");
 
     info!(
-        "Server listening on {} | Game area: {}x{}",
+        "🌐 Server will listen on {} | Game area: {}x{}",
         server_addr, game_config.game_width, game_config.game_height
     );
+    
+    info!("🎯 Protocol ID: {}", network_config.protocol_id);
 
     // Create server config
+    info!("⚙️  Creating Lightyear server configuration...");
     let lightyear_config = create_websocket_config(server_addr, network_config);
-
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Boid Wars Server".to_string(),
-                resolution: (1800.0, 1350.0).into(),
-                ..default()
-            }),
-            ..default()
-        }))
-        // Add debug UI early so it gets input events first
-        .add_plugins(DebugUIPlugin)
+    
+    info!("🎮 Building Bevy app with plugins...");
+    let mut app = App::new();
+    
+    info!("🔌 Adding base plugins...");
+    app.add_plugins(get_base_plugins());
+    
+    info!("🔌 Adding game plugins...");
+    app.add_plugins(DebugUIPlugin)
         .add_plugins(ServerPlugins::new(lightyear_config))
         .add_plugins(ProtocolPlugin)
         .add_plugins(SpatialGridPlugin)  // Must be before systems that use it
@@ -64,8 +91,10 @@ fn main() {
         .add_plugins(PositionSyncPlugin)
         // .add_plugins(FlockingPlugin)  // DISABLED - using group system instead
         .add_plugins(groups::BoidGroupPlugin)
-        .add_plugins(BoidWarsServerPlugin)
-        .run();
+        .add_plugins(BoidWarsServerPlugin);
+    
+    info!("🚀 Starting Bevy app...");
+    app.run();
 }
 
 fn create_websocket_config(
@@ -118,9 +147,12 @@ impl Plugin for BoidWarsServerPlugin {
 }
 
 fn setup_server(mut commands: Commands) {
+    info!("🌐 Starting Lightyear server...");
+    
     // Start the Lightyear server
     commands.queue(|world: &mut World| {
         world.start_server();
+        info!("✅ Lightyear server started successfully");
     });
 
     // Create status timer
@@ -128,6 +160,8 @@ fn setup_server(mut commands: Commands) {
         5.0, // Default status log interval
         TimerMode::Repeating,
     )));
+    
+    info!("⏰ Status timer configured (5s intervals)");
 }
 
 // Spawn AI players when a human player connects
@@ -148,7 +182,7 @@ fn spawn_collision_objects_delayed(
 
 // Helper function to spawn peaceful boids using the group system
 fn spawn_boid_flock(commands: &mut Commands) {
-    let game_config = &*GAME_CONFIG;
+    let _game_config = &*GAME_CONFIG;
     
     // Get resources
     let mut group_id_counter = groups::GroupIdCounter::default();

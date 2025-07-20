@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use boid_wars_shared::*;
 use lightyear::prelude::server::*;
+use lightyear::shared::replication::components::ReplicationGroup;
 
 pub mod combat;
 pub mod formation;
@@ -211,7 +212,10 @@ pub fn spawn_boid_group(
                 formation_slot: None, // Disable formation slots
                 role_in_group: role,
             },
-            Replicate::default(),
+            Replicate {
+                group: ReplicationGroup::new_id(group_id.into()),
+                ..default()
+            },
             // Physics components
             RigidBody::Dynamic,
             Collider::ball(BOID_RADIUS),

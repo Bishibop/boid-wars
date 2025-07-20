@@ -1,34 +1,35 @@
 use bevy::prelude::*;
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "debug-ui"))]
 use crate::config::PhysicsConfig;
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "debug-ui"))]
 use crate::flocking::FlockingConfig;
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "debug-ui"))]
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "debug-ui"))]
 const DEBUG_PANEL_WIDTH: f32 = 350.0;
 
 pub struct DebugUIPlugin;
 
 impl Plugin for DebugUIPlugin {
+    #[allow(unused_variables)]
     fn build(&self, app: &mut App) {
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, feature = "debug-ui"))]
         {
             app.add_plugins(EguiPlugin::default())
                 .add_systems(EguiPrimaryContextPass, debug_ui_system)
                 .add_systems(Startup, setup_debug_camera);
         }
 
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(all(debug_assertions, feature = "debug-ui")))]
         {
-            // Debug UI disabled in release build
+            // Debug UI disabled
         }
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "debug-ui"))]
 fn setup_debug_camera(mut commands: Commands) {
     let game_config = &*boid_wars_shared::GAME_CONFIG;
 
@@ -43,7 +44,7 @@ fn setup_debug_camera(mut commands: Commands) {
     ));
 }
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "debug-ui"))]
 fn debug_ui_system(
     mut contexts: EguiContexts,
     mut flocking_config: ResMut<FlockingConfig>,
@@ -487,7 +488,7 @@ fn debug_ui_system(
         .show(ctx, |_ui| {});
 }
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "debug-ui"))]
 fn render_config_section(
     ui: &mut egui::Ui,
     label: &str,

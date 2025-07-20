@@ -188,7 +188,7 @@ fn calculate_full_flocking_forces(
     obstacle_query: &Query<(&Position, &boid_wars_shared::Obstacle), Without<Boid>>,
     player_query: &Query<(&Position, &Velocity), (With<boid_wars_shared::Player>, Without<Boid>)>,
     config: &FlockingConfig,
-    delta_time: f32,
+    _delta_time: f32,
 ) -> Vec2 {
     let game_config = &*boid_wars_shared::GAME_CONFIG;
 

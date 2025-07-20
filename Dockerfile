@@ -91,7 +91,11 @@ RUN mkdir -p server/src server/benches && \
 # The getrandom crate needs the js feature for wasm32-unknown-unknown
 # We need to ensure all dependencies use the correct features
 RUN cd bevy-client && \
-    wasm-pack build --target web --out-dir pkg --release --locked
+    wasm-pack build --target web --out-dir pkg --release --locked && \
+    echo "✅ WASM build completed" && \
+    ls -la pkg/ && \
+    echo "📦 WASM package contents:" && \
+    ls -la pkg/
 
 # Runtime stage
 FROM debian:bookworm-slim AS runtime
@@ -102,6 +106,22 @@ RUN apt-get update && apt-get install -y \
     tzdata \
     python3 \
     curl \
+    libasound2 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxcb-render0 \
+    libxcb-shape0 \
+    libxcb-xfixes0 \
+    libxi6 \
+    libxcursor1 \
+    libxrandr2 \
+    libxkbcommon0 \
+    libxkbcommon-x11-0 \
+    libxrender1 \
+    libxext6 \
+    libxfixes3 \
+    libxinerama1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -114,9 +134,17 @@ RUN groupadd -g 1001 appuser && \
 COPY --from=builder /bin/server /app/server
 
 # Copy WASM client assets
+# Debug: List what we're copying
+RUN mkdir -p /app/static
 COPY --from=wasm-builder /app/bevy-client/pkg /app/static/pkg/
 COPY --from=wasm-builder /app/bevy-client/index.html /app/static/
 COPY --from=wasm-builder /app/bevy-client/demo.html /app/static/
+
+# Verify files were copied
+RUN echo "📁 Static files in /app/static:" && \
+    ls -la /app/static/ && \
+    echo "📦 Package files:" && \
+    ls -la /app/static/pkg/ || echo "No pkg directory!"
 
 # Copy game assets
 # TODO: Update this to "assets" when assets-worktree gets merged back
