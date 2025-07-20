@@ -181,7 +181,7 @@ pub fn spawn_boid_group(
         // Create boid bundle with enhanced stats based on archetype
         let mut bundle = BoidBundle::new(boid_id, x, y);
 
-        // Dramatically adjust combat stats based on archetype
+        // Dramatically adjust combat stats and size based on archetype
         match archetype {
             GroupArchetype::Assault {
                 aggression_multiplier,
@@ -195,6 +195,7 @@ pub fn spawn_boid_group(
                 bundle.combat_stats.spread_angle = 0.15; // Less accurate (~8.5 degrees)
                 bundle.health.max = 40.0; // Tankier for frontline combat
                 bundle.health.current = bundle.health.max;
+                bundle.size.scale = 1.2; // 20% larger for heavy armor
             }
             GroupArchetype::Defensive { .. } => {
                 // Defensive: Moderate damage, slow fire rate, long range, heavy health
@@ -205,6 +206,7 @@ pub fn spawn_boid_group(
                 bundle.combat_stats.spread_angle = 0.05; // Very accurate (~3 degrees)
                 bundle.health.max = 50.0; // Heaviest armor for defensive positions
                 bundle.health.current = bundle.health.max;
+                bundle.size.scale = 1.4; // 40% larger for heaviest armor
             }
             GroupArchetype::Recon { .. } => {
                 // Recon: Low damage, moderate fire rate, very long range, light health
@@ -215,6 +217,7 @@ pub fn spawn_boid_group(
                 bundle.combat_stats.spread_angle = 0.08; // Good accuracy (~4.5 degrees)
                 bundle.health.max = 20.0; // Light armor for mobility
                 bundle.health.current = bundle.health.max;
+                bundle.size.scale = 0.8; // 20% smaller for light armor and speed
             }
         }
 
@@ -222,6 +225,9 @@ pub fn spawn_boid_group(
         let angle = rand::random::<f32>() * std::f32::consts::TAU;
         let speed = 50.0;
         bundle.velocity = boid_wars_shared::Velocity::new(angle.cos() * speed, angle.sin() * speed);
+
+        // Store scale value before bundle is moved
+        let size_scale = bundle.size.scale;
 
         commands.spawn((
             bundle,
@@ -238,7 +244,7 @@ pub fn spawn_boid_group(
             },
             // Physics components
             RigidBody::Dynamic,
-            Collider::ball(physics_config.boid_radius),
+            Collider::ball(physics_config.boid_radius * size_scale),
             GameCollisionGroups::boid(),
             ActiveEvents::COLLISION_EVENTS,
             Transform::from_xyz(x, y, 0.0),

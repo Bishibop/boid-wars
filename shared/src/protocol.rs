@@ -53,6 +53,12 @@ pub struct BoidSpriteGroup {
     pub group_id: u32,
 }
 
+/// Size scale component for boids based on health/archetype
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct BoidSize {
+    pub scale: f32,
+}
+
 /// Static combat capabilities for boids (replicated once)
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BoidCombatStats {
@@ -405,6 +411,7 @@ pub struct BoidBundle {
     pub position: Position,
     pub velocity: Velocity,
     pub health: Health,
+    pub size: BoidSize,
     pub combat_stats: BoidCombatStats,
     pub combat_state: BoidCombatState,
 }
@@ -419,6 +426,7 @@ impl BoidBundle {
                 current: 30.0,
                 max: 30.0,
             },
+            size: BoidSize { scale: 1.0 }, // Default size
             combat_stats: BoidCombatStats::default(),
             combat_state: BoidCombatState::default(),
         }
@@ -454,6 +462,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PlayerNumber>(ChannelDirection::ServerToClient);
         app.register_component::<Boid>(ChannelDirection::ServerToClient);
         app.register_component::<BoidSpriteGroup>(ChannelDirection::ServerToClient);
+        app.register_component::<BoidSize>(ChannelDirection::ServerToClient);
         app.register_component::<BoidCombatStats>(ChannelDirection::ServerToClient);
         // BoidCombatState is server-only and not registered for replication
         app.register_component::<Obstacle>(ChannelDirection::ServerToClient);

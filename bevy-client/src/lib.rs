@@ -584,6 +584,7 @@ fn render_networked_entities(
             Entity,
             &Position,
             Option<&BoidSpriteGroup>,
+            Option<&BoidSize>,
             Option<&Rotation>,
             Option<&Velocity>,
         ),
@@ -662,7 +663,7 @@ fn render_networked_entities(
     }
 
     // Add visual representation to networked boids (includes AI players)
-    for (entity, position, sprite_group, rotation, velocity) in boids.iter() {
+    for (entity, position, sprite_group, size, rotation, velocity) in boids.iter() {
         // Use velocity direction if available and significant, otherwise use rotation
         let angle = if let Some(vel) = velocity {
             if vel.length_squared() > 0.1 {
@@ -689,10 +690,14 @@ fn render_networked_entities(
             enemy_sprite.0.clone() // Default fallback if no group info
         };
 
+        // Calculate sprite size based on BoidSize component
+        let sprite_scale = size.map(|s| s.scale).unwrap_or(1.0);
+        let scaled_size = BOID_SPRITE_SIZE * sprite_scale;
+
         commands.entity(entity).insert((
             Sprite {
                 image: sprite_handle,
-                custom_size: Some(Vec2::splat(BOID_SPRITE_SIZE)),
+                custom_size: Some(Vec2::splat(scaled_size)),
                 ..default()
             },
             Transform::from_translation(Vec3::new(position.x, position.y, 13.0))
@@ -939,6 +944,8 @@ fn send_player_input(
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     players: Query<&Position, (With<Player>, With<LocalPlayer>)>,
+    mut input_timer: Local<f32>,
+    time: Res<Time>,
 ) {
     let mut movement = Vec2::ZERO;
     let fire = keys.pressed(KeyCode::Space) || mouse_buttons.pressed(MouseButton::Left);
@@ -986,10 +993,16 @@ fn send_player_input(
         aim = movement;
     }
 
-    let input = PlayerInput::new(movement, aim, fire);
-
-    // Send input to server as a message
-    let _ = connection.send_message::<UnreliableChannel, PlayerInput>(&input);
+    // Rate limit input sending to 25Hz (40ms intervals)
+    *input_timer += time.delta_secs();
+    if *input_timer >= 0.04 {
+        *input_timer = 0.0;
+        
+        let input = PlayerInput::new(movement, aim, fire);
+        
+        // Send input to server as a message
+        let _ = connection.send_message::<UnreliableChannel, PlayerInput>(&input);
+    }
 }
 
 /// Debug system to count players and their positions
