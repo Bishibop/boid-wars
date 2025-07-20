@@ -364,7 +364,7 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Sprite {
             image: background_texture,
-            color: Color::srgba(0.25, 0.25, 0.25, 1.0), // Dark overlay
+            color: Color::WHITE, // No opacity
             ..default()
         },
         Transform::from_translation(Vec3::new(center_x, center_y, 1.0)), // z-index 1 as requested
