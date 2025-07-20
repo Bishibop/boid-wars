@@ -1,7 +1,8 @@
 use crate::spatial_grid::SpatialGrid;
 use bevy::prelude::*;
 use boid_wars_shared::{
-    Boid, BoidGroup, BoidGroupMember, BoidRole, GroupArchetype, GroupBehavior, Player, Position, Velocity,
+    Boid, BoidGroup, BoidGroupMember, BoidRole, GroupArchetype, GroupBehavior, Player, Position,
+    Velocity,
 };
 
 /// Simplified configuration for flocking behavior
@@ -61,8 +62,8 @@ impl Default for FlockingConfig {
             cohesion_weight: 1.0,
 
             // Movement parameters - increased 50% more for even faster movement
-            max_speed: 1050.0, // 50% increase from 700.0
-            max_force: 1800.0, // 50% increase from 1200.0
+            max_speed: 500.0, // Moderate speed base
+            max_force: 800.0, // Reduced for better performance
 
             // Boundary behavior - increased for better wall avoidance
             boundary_margin: 80.0,      // Increased from 50.0
@@ -205,7 +206,7 @@ pub fn update_flocking(
         if sep_count > 0 {
             separation = (separation / sep_count as f32).normalize_or_zero() * config.max_speed;
             separation = (separation - vel.0).clamp_length_max(config.max_force);
-            
+
             // Archetype-specific separation behavior
             let separation_multiplier = if let Some(member) = group_member {
                 if let Ok(group) = group_query.get(member.group_entity) {
@@ -220,7 +221,7 @@ pub fn update_flocking(
             } else {
                 1.0
             };
-            
+
             acceleration += separation * config.separation_weight * separation_multiplier;
         }
 
@@ -228,7 +229,7 @@ pub fn update_flocking(
         if align_count > 0 {
             alignment = (alignment / align_count as f32).normalize_or_zero() * config.max_speed;
             alignment = (alignment - vel.0).clamp_length_max(config.max_force);
-            
+
             // Archetype-specific alignment behavior
             let alignment_multiplier = if let Some(member) = group_member {
                 if let Ok(group) = group_query.get(member.group_entity) {
@@ -243,7 +244,7 @@ pub fn update_flocking(
             } else {
                 1.0
             };
-            
+
             acceleration += alignment * config.alignment_weight * alignment_multiplier;
         }
 
@@ -252,13 +253,13 @@ pub fn update_flocking(
             let center = cohesion / cohesion_count as f32;
             let desired = (center - pos.0).normalize_or_zero() * config.max_speed;
             cohesion = (desired - vel.0).clamp_length_max(config.max_force);
-            
+
             // Reduce cohesion for Defensive groups to make them spread farther apart
             let cohesion_multiplier = if let Some(member) = group_member {
                 if let Ok(group) = group_query.get(member.group_entity) {
                     match &group.archetype {
                         GroupArchetype::Defensive { .. } => 0.3, // Much weaker cohesion for spreading
-                        _ => 1.0, // Normal cohesion for other groups
+                        _ => 1.0,                                // Normal cohesion for other groups
                     }
                 } else {
                     1.0
@@ -266,7 +267,7 @@ pub fn update_flocking(
             } else {
                 1.0
             };
-            
+
             acceleration += cohesion * config.cohesion_weight * cohesion_multiplier;
         }
 
@@ -317,7 +318,7 @@ pub fn update_flocking(
                 }
 
                 // Check for players
-                if let Ok((player_pos, player_vel, player)) = player_query.get(other_entity) {
+                if let Ok((player_pos, player_vel, _player)) = player_query.get(other_entity) {
                     let distance = pos.0.distance(player_pos.0);
                     if distance < config.player_avoidance_radius {
                         let force = calculate_dynamic_avoidance(
@@ -343,7 +344,10 @@ pub fn update_flocking(
         if let Some(member) = group_member {
             if let Ok(group) = group_query.get(member.group_entity) {
                 match &group.behavior_state {
-                    GroupBehavior::Retreating { rally_point, speed_multiplier } => {
+                    GroupBehavior::Retreating {
+                        rally_point,
+                        speed_multiplier,
+                    } => {
                         // Move toward rally point with enhanced speed
                         let direction = (*rally_point - pos.0).normalize_or_zero();
                         pursuit_force = direction * config.max_speed * speed_multiplier;
@@ -354,67 +358,93 @@ pub fn update_flocking(
                         for (target_pos, _, target_player) in player_query.iter() {
                             if target_player.id as u32 == *primary_target {
                                 let distance_to_target = pos.0.distance(target_pos.0);
-                                
+
                                 match &group.archetype {
-                                    GroupArchetype::Defensive { protection_radius, .. } => {
+                                    GroupArchetype::Defensive {
+                                        protection_radius, ..
+                                    } => {
                                         // Defensive groups maintain distance and shoot from afar - much slower and spread out
                                         let preferred_distance = protection_radius * 0.8; // Stay at 80% of protection radius (farther)
-                                        
+
                                         if distance_to_target < preferred_distance {
                                             // Too close - back away while maintaining sight (very slow)
-                                            let direction = (pos.0 - target_pos.0).normalize_or_zero();
+                                            let direction =
+                                                (pos.0 - target_pos.0).normalize_or_zero();
                                             pursuit_force = direction * config.max_speed * 0.4; // Much slower retreat
                                             is_defensive_keeping_distance = true;
                                         } else if distance_to_target > preferred_distance * 1.8 {
                                             // Too far - move closer very slowly
-                                            let direction = (target_pos.0 - pos.0).normalize_or_zero();
+                                            let direction =
+                                                (target_pos.0 - pos.0).normalize_or_zero();
                                             pursuit_force = direction * config.max_speed * 0.3; // Very slow approach
                                             is_pursuing = true;
                                         }
                                         // If within optimal range, don't move much (let flocking handle minor adjustments)
                                     }
-                                    GroupArchetype::Assault { preferred_range, .. } => {
+                                    GroupArchetype::Assault {
+                                        preferred_range, ..
+                                    } => {
                                         // Assault groups: Direct aggressive pursuit with flanking
                                         if distance_to_target > *preferred_range {
-                                            let mut direction = (target_pos.0 - pos.0).normalize_or_zero();
-                                            
+                                            let mut direction =
+                                                (target_pos.0 - pos.0).normalize_or_zero();
+
                                             // Add flanking behavior based on boid role
                                             if let Some(member) = group_member {
                                                 match member.role_in_group {
                                                     BoidRole::Flanker => {
                                                         // Flankers approach from sides
-                                                        let perpendicular = Vec2::new(-direction.y, direction.x);
-                                                        let side_offset = if (pos.0.x + pos.0.y) % 2.0 > 1.0 { 1.0 } else { -1.0 };
-                                                        direction += perpendicular * side_offset * 0.3;
+                                                        let perpendicular =
+                                                            Vec2::new(-direction.y, direction.x);
+                                                        let side_offset =
+                                                            if (pos.0.x + pos.0.y) % 2.0 > 1.0 {
+                                                                1.0
+                                                            } else {
+                                                                -1.0
+                                                            };
+                                                        direction +=
+                                                            perpendicular * side_offset * 0.3;
                                                         direction = direction.normalize_or_zero();
                                                     }
                                                     BoidRole::Leader => {
                                                         // Leaders charge directly
-                                                        pursuit_force = direction * config.max_speed * 1.4; // Extra aggressive
+                                                        pursuit_force =
+                                                            direction * config.max_speed * 1.4;
+                                                        // Extra aggressive
                                                     }
                                                     _ => {}
                                                 }
                                             }
-                                            
+
                                             if pursuit_force.length_squared() == 0.0 {
-                                                pursuit_force = direction * config.max_speed * 1.2; // Default aggressive pursuit
+                                                pursuit_force = direction * config.max_speed * 1.2;
+                                                // Default aggressive pursuit
                                             }
                                             is_pursuing = true;
                                         }
                                     }
-                                    GroupArchetype::Recon { flee_speed_bonus, .. } => {
+                                    GroupArchetype::Recon {
+                                        flee_speed_bonus, ..
+                                    } => {
                                         // Recon groups: Hit-and-run with circling patterns
                                         if distance_to_target > 250.0 {
                                             // Too far - approach for harassment
-                                            let direction = (target_pos.0 - pos.0).normalize_or_zero();
-                                            pursuit_force = direction * config.max_speed * flee_speed_bonus;
+                                            let direction =
+                                                (target_pos.0 - pos.0).normalize_or_zero();
+                                            pursuit_force =
+                                                direction * config.max_speed * flee_speed_bonus;
                                             is_pursuing = true;
                                         } else if distance_to_target < 180.0 {
                                             // Too close - circle strafe
                                             let to_target = target_pos.0 - pos.0;
-                                            let perpendicular = Vec2::new(-to_target.y, to_target.x).normalize_or_zero();
-                                            let circle_direction = perpendicular * 0.7 + to_target.normalize_or_zero() * 0.3;
-                                            pursuit_force = circle_direction * config.max_speed * flee_speed_bonus;
+                                            let perpendicular =
+                                                Vec2::new(-to_target.y, to_target.x)
+                                                    .normalize_or_zero();
+                                            let circle_direction = perpendicular * 0.7
+                                                + to_target.normalize_or_zero() * 0.3;
+                                            pursuit_force = circle_direction
+                                                * config.max_speed
+                                                * flee_speed_bonus;
                                             is_pursuing = true;
                                         }
                                         // If in optimal range (180-250), maintain position
@@ -434,14 +464,14 @@ pub fn update_flocking(
             let avg_force =
                 (obstacle_force / obstacle_count as f32).normalize_or_zero() * config.max_speed;
             let steering = (avg_force - vel.0).clamp_length_max(config.max_force);
-            
+
             // Archetype-specific obstacle avoidance
             let obstacle_multiplier = if let Some(member) = group_member {
                 if let Ok(group) = group_query.get(member.group_entity) {
                     match &group.archetype {
                         GroupArchetype::Assault { .. } => 0.8, // More aggressive, less cautious around obstacles
                         GroupArchetype::Defensive { .. } => 1.4, // Very cautious, avoid obstacles early
-                        GroupArchetype::Recon { .. } => 1.0, // Standard avoidance for mobility
+                        GroupArchetype::Recon { .. } => 1.0,     // Standard avoidance for mobility
                     }
                 } else {
                     1.0
@@ -449,7 +479,7 @@ pub fn update_flocking(
             } else {
                 1.0
             };
-            
+
             acceleration += steering * config.obstacle_avoidance_weight * obstacle_multiplier;
         }
 
@@ -504,7 +534,7 @@ pub fn update_flocking(
         } else {
             (1.0, 1.0)
         };
-        
+
         vel.0 += acceleration * delta * agility_multiplier;
         vel.0 = vel.0.clamp_length_max(config.max_speed * speed_multiplier);
     }

@@ -101,12 +101,14 @@ fn group_target_selection(
                     {
                         // Retreat to home territory with archetype-specific speed
                         let retreat_speed = match group.archetype {
-                            GroupArchetype::Recon { flee_speed_bonus, .. } => {
+                            GroupArchetype::Recon {
+                                flee_speed_bonus, ..
+                            } => {
                                 1.5 * flee_speed_bonus // Enhanced retreat speed for Recon
                             }
                             _ => 1.5, // Default retreat speed
                         };
-                        
+
                         group.behavior_state = GroupBehavior::Retreating {
                             rally_point: group.home_territory.center,
                             speed_multiplier: retreat_speed,

@@ -1,67 +1,60 @@
 # Boid Wars
 
-A high-performance multiplayer browser game featuring massive swarms of AI-controlled enemies (boids) in intense twin-stick shooter combat.
+A 2-player competitive space shooter featuring AI-controlled enemy swarms using flocking behavior.
 
 ## Overview
 
-Boid Wars is a competitive space shooter where players battle against thousands of coordinated enemy swarms while competing with other players. Built with cutting-edge web technologies for minimal latency and maximum performance.
+Boid Wars is a browser-based PvP space shooter where two players battle against coordinated AI enemies that move in realistic flocks. The game focuses on performance optimizations to handle 100+ entities at 60 FPS.
 
 ### Key Features
-- **Massive Scale**: 10,000+ AI enemies using optimized boid flocking algorithms
-- **Realistic Physics**: Thrust-based movement, projectile physics, and collision detection
-- **Low Latency**: WebTransport protocol for near-instant response times
-- **Browser-Based**: No downloads required - runs in modern web browsers
-- **Server Authoritative**: Secure, cheat-resistant architecture
+- **Flocking AI**: Enemy boids use realistic flocking algorithms for emergent group behavior
+- **Performance Optimized**: Spatial grid system and object pooling for smooth gameplay
+- **Three Boid Archetypes**: Assault, Defensive, and Recon groups with distinct behaviors
+- **Physics-Based**: Thrust-based movement and projectile physics
+- **Browser-Based**: Runs in modern web browsers without downloads
 
 ## Tech Stack
 
-- **Server**: Rust + Bevy ECS + Lightyear 0.20 (WebTransport/WebSocket)
+- **Server**: Rust + Bevy ECS + Lightyear 0.21
 - **Client**: Rust + Bevy ECS (WASM build)
-- **Physics**: Rapier 2D for realistic movement and collisions
-- **Protocol**: WebTransport (production) / WebSocket (development)
-- **Architecture**: Unified Rust codebase for maximum performance
-
-## Prerequisites
-
-- [Rust](https://rustup.rs/) (stable toolchain)
-- [wasm-pack](https://rustwasm.github.io/wasm-pack/)
-- [trunk](https://trunkrs.dev/) (for serving WASM client)
-- Modern browser with WebAssembly support
+- **Physics**: Rapier 2D for movement and collisions
+- **Networking**: WebSocket protocol
 
 ## Quick Start
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/boid_wars.git
-   cd boid_wars
-   ```
+**One-command setup:**
+```bash
+./scripts/get-started.sh
+```
 
-2. **Check prerequisites**
-   ```bash
-   make prereqs
-   ```
-   
-   If anything is missing, follow the installation instructions shown.
+This script will automatically:
+- Install all prerequisites (Rust, Node.js, wasm-pack, mkcert)
+- Set up SSL certificates
+- Build the project
+- Configure the development environment
 
-3. **Set up the project**
+After setup completes:
+```bash
+make dev  # Start both server and client
+```
+
+Then open http://localhost:8080 in your browser.
+
+### Manual Setup
+
+If you prefer to install prerequisites manually:
+
+1. **Install prerequisites**
+   - [Rust](https://rustup.rs/) (stable toolchain)
+   - [Node.js](https://nodejs.org/)
+   - [wasm-pack](https://rustwasm.github.io/wasm-pack/)
+   - [mkcert](https://github.com/FiloSottile/mkcert)
+
+2. **Set up the project**
    ```bash
    make setup
-   ```
-   
-   This will:
-   - Install Rust dependencies
-   - Build the WASM client
-   - Set up development environment
-
-4. **Start development**
-   ```bash
    make dev
    ```
-   
-   This runs both server and client with hot reloading.
-
-5. **Open the game**
-   Navigate to http://localhost:8080 in Chrome, Edge, or Firefox
 
 ## Development
 
@@ -99,26 +92,14 @@ make build-wasm       # Build WASM client only
 cargo build --release # Build server only
 ```
 
-### Performance Monitoring
+## Performance Optimizations
 
-The Bevy client includes built-in diagnostics:
-- FPS counter overlay
-- Entity count display
-- Network statistics
-- Frame time graphs
+The game includes several key optimizations for handling 100+ entities at 60 FPS:
 
-Enable diagnostics with the `--features debug` flag during development.
-
-## Architecture
-
-- **Server Authoritative**: All game logic runs on the server
-- **Entity Replication**: Automatic synchronization via Lightyear
-- **Physics Integration**: Rapier 2D with dual coordinate system (Transform/Position)
-- **Object Pooling**: Efficient projectile management with generation tracking
-- **Interest Management**: Only relevant entities sent to each client
-- **Delta Compression**: Minimal bandwidth usage
-
-See [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) for system design and [docs/](docs/) for additional documentation.
+- **Spatial Grid System**: O(1) neighbor queries for flocking calculations instead of O(n²)
+- **Object Pooling**: Pre-allocated projectile pools with generation tracking
+- **Boid Archetypes**: Three distinct group behaviors (Assault, Defensive, Recon) with optimized update patterns
+- **Memory Optimization**: Cache-friendly component design and pre-allocated buffers
 
 ## Browser Support
 
@@ -127,7 +108,7 @@ See [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) for system design and [docs
 | Chrome | ✅ Full | Recommended |
 | Edge | ✅ Full | Chromium-based |
 | Firefox | ✅ Full | Good performance |
-| Safari | ❌ None | No WebTransport support |
+| Safari | ✅ Basic | WebSocket support only |
 
 ## Contributing
 
@@ -169,12 +150,11 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Status
 
-🚧 **Architecture Migration** - Currently migrating from TypeScript/Pixi.js to full Bevy WASM client. Core gameplay in active development.
+🚧 **In Development** - Core gameplay features implemented. Currently optimizing performance and adding game polish.
 
 ### Recent Changes
-- Implemented full physics system with Rapier 2D integration
-- Added thrust-based player movement and projectile combat
-- Optimized entity spawning with bounded object pooling
-- Switched to full Bevy WASM client for unified architecture
-- Using Lightyear 0.20 for networking (stable API)
-- Implemented WebSocket fallback for local development
+- Added three distinct boid group archetypes with unique behaviors  
+- Implemented spatial grid optimization for flocking calculations
+- Added object pooling for projectiles and entities
+- Optimized rendering and networking for 100+ entity gameplay
+- Enhanced boid AI with formation systems and combat behaviors

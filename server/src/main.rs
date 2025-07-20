@@ -598,7 +598,7 @@ fn log_status(
         let projectile_count = projectiles.iter().len();
         let total_entities = all_entities.iter().len();
 
-        info!(
+        debug!(
             "[Status] Players: {} | Boids: {} | Projectiles: {} | Entities: {}",
             player_count, boid_count, projectile_count, total_entities
         );

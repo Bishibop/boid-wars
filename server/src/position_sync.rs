@@ -2,7 +2,6 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use boid_wars_shared::{Boid, Player, Position, Velocity as NetworkVelocity};
 use std::time::Duration;
-use tracing::info;
 
 // Constants
 const ROTATION_SYNC_THRESHOLD: f32 = 0.01; // ~0.5 degrees in radians

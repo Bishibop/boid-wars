@@ -244,13 +244,13 @@ fn create_client_config() -> (lightyear::prelude::client::ClientConfig, u64) {
 
         // Try to parse the current host with detected port
         // If it fails, fall back to dummy IP (browser will use page host anyway)
-        format!("{}:{}", host, port)
+        format!("{host}:{port}")
             .parse::<SocketAddr>()
             .unwrap_or_else(|_| {
                 info!("⚠️  Could not parse host as IP, using fallback");
                 // Use standard port in fallback too
                 let fallback_port = if protocol == "https:" { 443 } else { 80 };
-                format!("127.0.0.1:{}", fallback_port).parse().unwrap()
+                format!("127.0.0.1:{fallback_port}").parse().unwrap()
             })
     };
 
@@ -789,6 +789,7 @@ fn sync_position_to_transform(
             Option<&Player>,
             Option<&Projectile>,
             Option<&mut SmoothTransform>,
+            Option<&LocalPlayer>,
         ),
         Or<(Changed<Position>, Changed<Rotation>, Changed<Velocity>)>,
     >,
@@ -802,6 +803,7 @@ fn sync_position_to_transform(
         player,
         projectile,
         smooth_transform,
+        local_player,
     ) in query.iter_mut()
     {
         // Check if this entity needs smooth interpolation (only boids, not players or projectiles)
@@ -889,7 +891,7 @@ fn sync_position_to_transform(
             // Sync rotation from server for players
             // (Local player rotation is handled by update_player_rotation_to_mouse)
             if let Some(rot) = rotation {
-                if player.is_some() {
+                if player.is_some() && local_player.is_none() {
                     // Players get light interpolation for smoother 30Hz updates
                     let target_rotation = rot.angle;
                     let current_rotation = transform.rotation.to_euler(EulerRot::ZYX).0;
@@ -997,9 +999,9 @@ fn send_player_input(
     *input_timer += time.delta_secs();
     if *input_timer >= 0.04 {
         *input_timer = 0.0;
-        
+
         let input = PlayerInput::new(movement, aim, fire);
-        
+
         // Send input to server as a message
         let _ = connection.send_message::<UnreliableChannel, PlayerInput>(&input);
     }
@@ -1189,7 +1191,7 @@ fn smooth_interpolation_system(
     }
 }
 
-/// Handle camera zoom with mouse wheel (DISABLED)
+// Handle camera zoom with mouse wheel (DISABLED)
 /*
 fn handle_camera_zoom(
     mut scroll_evr: EventReader<bevy::input::mouse::MouseWheel>,

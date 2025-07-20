@@ -1063,7 +1063,6 @@ fn shooting_system(
 
                 pooled_handle.entity
             } else {
-                warn!("[POOL] Pool exhausted! Spawning new projectile (this may cause performance issues)");
 
                 // Pool is empty, spawn a new projectile
                 commands
@@ -1110,7 +1109,6 @@ fn shooting_system(
                     NetworkTarget::All,
                 )
                 .unwrap_or_else(|e| {
-                    warn!("Failed to send projectile spawn event: {:?}", e);
                 });
         }
     }
@@ -1260,7 +1258,6 @@ fn boid_shooting_system(
                     NetworkTarget::All,
                 )
                 .unwrap_or_else(|e| {
-                    warn!("Failed to send boid projectile spawn event: {:?}", e);
                 });
         }
     }
@@ -1473,10 +1470,6 @@ fn collision_system(
             // Hit a player - apply damage to Health component
             let old_health = health.current;
             health.current = (health.current - damage).max(0.0);
-            info!(
-                "Player {:?} took damage: {} -> {} (damage: {})",
-                player_entity, old_health, health.current, damage
-            );
 
             if health.current <= 0.0 {
                 handle_player_death(&mut commands, player_entity);
@@ -1528,7 +1521,6 @@ fn handle_player_death(commands: &mut Commands, player_entity: Entity) {
     // TODO: Update game state for battle royale (track remaining players)
     // TODO: Trigger death visual/audio effects
 
-    info!("Player {:?} has been eliminated", player_entity);
 }
 
 /// System to return projectiles to pool instead of despawning
@@ -1580,7 +1572,6 @@ fn return_projectiles_to_pool(
                         NetworkTarget::All,
                     )
                     .unwrap_or_else(|e| {
-                        warn!("Failed to send projectile despawn event: {:?}", e);
                     });
             }
             // Only process pooled projectiles
@@ -1640,11 +1631,7 @@ fn return_projectiles_to_pool(
                         false
                     };
 
-                    if !released {
-                        warn!("[POOL] Failed to return projectile {:?} to pool - possible double-release", entity);
-                    }
-                } else {
-                    warn!("[POOL] Failed to return projectile {:?} to pool - entity may have been despawned", entity);
+                    // Silently ignore pool return failures
                 }
             } else if despawning.is_some() {
                 // Non-pooled projectile marked for despawn
@@ -1685,9 +1672,6 @@ fn monitor_pool_health(
         let status = pool.status();
         let utilization = (status.active as f32 / status.total.max(1) as f32) * 100.0;
 
-        if utilization > config.pool_high_utilization_threshold {
-            warn!("[PLAYER POOL] High utilization detected! Consider increasing pool size or reducing projectile spawn rate");
-        }
 
         *debug_timer = 0.0;
     }
@@ -1707,9 +1691,6 @@ fn monitor_boid_pool_health(
         let status = pool.status();
         let utilization = (status.active as f32 / status.total.max(1) as f32) * 100.0;
 
-        if utilization > config.pool_high_utilization_threshold {
-            warn!("[BOID POOL] High utilization detected! Consider increasing pool size or reducing boid projectile spawn rate");
-        }
 
         *debug_timer = 0.0;
     }

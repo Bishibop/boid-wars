@@ -59,10 +59,6 @@ impl<T: Component + Clone> BoundedPool<T> {
                 *gen += 1;
                 pooled.generation = *gen;
             } else {
-                warn!(
-                    "Pool entity {:?} missing from generation map",
-                    pooled.entity
-                );
                 return None;
             }
 
@@ -89,19 +85,11 @@ impl<T: Component + Clone> BoundedPool<T> {
             } else {
                 // Generation mismatch - entity was already released
                 self.stats.failed_returns += 1;
-                warn!(
-                    "Attempted to release entity {:?} with outdated generation {} (current: {})",
-                    pooled.entity, pooled.generation, active_gen
-                );
                 false
             }
         } else {
             // Entity not in active set
             self.stats.failed_returns += 1;
-            warn!(
-                "Attempted to release entity {:?} that is not active",
-                pooled.entity
-            );
             false
         }
     }
@@ -169,12 +157,6 @@ pub fn monitor_pool_health<T: Component + Clone>(
 
     // Warn if pool is getting full
     if utilization > 0.8 && time.elapsed_secs() - *last_warning > 5.0 {
-        warn!(
-            "Pool utilization at {:.0}% ({}/{} active)",
-            utilization * 100.0,
-            status.active,
-            status.max_size
-        );
         *last_warning = time.elapsed_secs();
     }
 
