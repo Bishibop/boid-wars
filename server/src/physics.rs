@@ -9,7 +9,6 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::{MessageSend, NetworkTarget};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::f32::consts::PI;
 use std::time::{Duration, Instant};
 
 // Static names to avoid runtime allocations
@@ -481,7 +480,7 @@ impl Default for Player {
         Self {
             player_id: 0,
             thrust_force: 50000.0,
-            turn_rate: 5.0,
+            turn_rate: 3.0,
             forward_speed_multiplier: 1.5,
             weapon_cooldown: Timer::new(Duration::from_millis(250), TimerMode::Once),
         }
@@ -967,11 +966,26 @@ fn player_input_system(
 
         // Handle rotation
         if input.aim_direction.length() > 0.1 {
-            let target_angle = input.aim_direction.y.atan2(input.aim_direction.x) - PI / 2.0;
+            let target_angle = input.aim_direction.y.atan2(input.aim_direction.x) - std::f32::consts::FRAC_PI_2;
             let current_angle = transform.rotation.to_euler(EulerRot::ZYX).0;
-            let angle_diff = (target_angle - current_angle + PI) % (2.0 * PI) - PI;
+            
+            // Calculate shortest angular distance (fixes spinning bug)
+            let mut angle_diff = target_angle - current_angle;
+            // Normalize to [-π, π] using the shortest path
+            while angle_diff > std::f32::consts::PI {
+                angle_diff -= 2.0 * std::f32::consts::PI;
+            }
+            while angle_diff < -std::f32::consts::PI {
+                angle_diff += 2.0 * std::f32::consts::PI;
+            }
 
             velocity.angvel = angle_diff * player.turn_rate;
+            
+            // Debug log large angle changes that might cause spinning
+            if angle_diff.abs() > 2.0 {
+                warn!("Large rotation detected - target: {:.2}, current: {:.2}, diff: {:.2}, angvel: {:.2}", 
+                      target_angle, current_angle, angle_diff, velocity.angvel);
+            }
         }
     }
 

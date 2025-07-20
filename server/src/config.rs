@@ -50,7 +50,7 @@ impl Default for PhysicsConfig {
         Self {
             // Player physics
             player_thrust_force: 50000.0,
-            player_turn_rate: 5.0,
+            player_turn_rate: 3.0,
             player_forward_speed_multiplier: 1.5,
             player_max_speed: 800.0,
             player_acceleration: 800.0,

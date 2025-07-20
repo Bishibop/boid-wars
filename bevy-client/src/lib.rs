@@ -1071,14 +1071,17 @@ fn sync_position_to_transform(
                     let target_rotation = rot.angle;
                     let current_rotation = transform.rotation.to_euler(EulerRot::ZYX).0;
 
-                    // Smooth rotation interpolation (15% per frame)
-                    let angle_diff =
-                        (target_rotation - current_rotation).rem_euclid(std::f32::consts::TAU);
-                    let interpolated_angle = if angle_diff > std::f32::consts::PI {
-                        current_rotation - (std::f32::consts::TAU - angle_diff) * 0.15
-                    } else {
-                        current_rotation + angle_diff * 0.15
-                    };
+                    // Smooth rotation interpolation using shortest angular path (15% per frame)
+                    let mut angle_diff = target_rotation - current_rotation;
+                    // Normalize to [-π, π] using the shortest path (same as server)
+                    while angle_diff > std::f32::consts::PI {
+                        angle_diff -= 2.0 * std::f32::consts::PI;
+                    }
+                    while angle_diff < -std::f32::consts::PI {
+                        angle_diff += 2.0 * std::f32::consts::PI;
+                    }
+                    
+                    let interpolated_angle = current_rotation + angle_diff * 0.15;
 
                     transform.rotation = Quat::from_rotation_z(interpolated_angle);
                 }
